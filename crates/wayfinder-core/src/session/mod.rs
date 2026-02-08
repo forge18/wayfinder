@@ -4,6 +4,7 @@ use super::debug::conditions::ConditionEvaluator;
 use super::debug::hit_conditions;
 use super::debug::logpoints::LogpointEvaluator;
 use super::debug::watchpoints::WatchpointManager;
+use super::hot_reload::WarningSeverity;
 use super::runtime::{BreakpointType, DebugRuntime, Frame, Scope, StepMode, Variable, Value};
 use serde_json::{json, Value as JsonValue};
 
@@ -371,7 +372,6 @@ impl<R: DebugRuntime> DapServer<R> {
 
     pub fn set_process(&mut self, process: tokio::process::Child) {
         self.process_handle = Some(process);
-        self.is_running = true;
     }
 
     pub async fn terminate_process(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -707,32 +707,49 @@ impl<R: DebugRuntime> DapServer<R> {
             None => return Some(self.error_response(id, -1, "No debug session".to_string())),
         };
 
-        // Extract the module path from parameters
-        let module_path = match params.get("module") {
-            Some(path) => match path.as_str() {
-                Some(p) => p,
-                None => return Some(self.error_response(id, -1, "Module path must be a string".to_string())),
+        // Extract the module source from parameters
+        let module_source = match params.get("source") {
+            Some(source) => match source.as_str() {
+                Some(s) => s,
+                None => return Some(self.error_response(id, -1, "Source must be a string".to_string())),
             },
-            None => return Some(self.error_response(id, -1, "Missing module parameter".to_string())),
+            None => return Some(self.error_response(id, -1, "Missing source parameter".to_string())),
         };
 
-        // In a real implementation, we would:
-        // 1. Load the new module source
-        // 2. Capture the current state
-        // 3. Compile and execute the new module
-        // 4. Restore the state
-        // 5. Update references
+        // Extract optional module name
+        let module_name = params.get("name").and_then(|n| n.as_str());
 
-        println!("Hot reloading module: {}", module_path);
-        
-        // For now, we'll just return a success response
-        Some(json!({ 
-            "id": id, 
-            "result": {
-                "success": true,
-                "message": format!("Hot reload initiated for module: {}", module_path)
+        // Perform the hot reload operation directly through the runtime
+        match session.runtime.hot_reload(module_source, module_name).await {
+            Ok(result) => {
+                // Send warnings as output events
+                for warning in &result.warnings {
+                    let severity = match warning.severity {
+                        WarningSeverity::Info => "info",
+                        WarningSeverity::Warning => "warning",
+                        WarningSeverity::Error => "error",
+                    };
+
+                    // In a real implementation, we would send this as a DAP output event
+                    // For now, we'll just print it
+                    println!("[{}] Hot reload: {}", severity, warning.message);
+                }
+
+                // Return success response
+                Some(json!({
+                    "seq": 0,
+                    "type": "response",
+                    "request_seq": id,
+                    "command": "hotReload",
+                    "success": result.success,
+                    "body": {
+                        "message": result.message,
+                        "warnings": result.warnings.len(),
+                    }
+                }))
             }
-        }))
+            Err(e) => Some(self.error_response(id, -1, format!("Hot reload failed: {}", e))),
+        }
     }
 
     async fn handle_next(&mut self, id: u64) -> Option<JsonValue> {

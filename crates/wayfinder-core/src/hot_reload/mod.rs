@@ -6,10 +6,12 @@
 
 pub mod hot_reload;
 pub mod state_capture;
+pub mod service;
 
 // Re-export the main types for convenience
 pub use hot_reload::{HotReload, HotReloadError, HotReloadWarning, WarningSeverity};
 pub use state_capture::{CapturedGlobal, CapturedTable, CapturedValue, StateCapture};
+pub use service::{HotReloadService, HotReloadResult};
 
 #[cfg(test)]
 mod tests {

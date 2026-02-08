@@ -81,8 +81,10 @@ impl LuaNextRuntime {
             CURRENT_LINE.store(1, Ordering::SeqCst);
         }
 
+        let lua = Arc::new(Mutex::new(Lua::new()));
+
         Self {
-            lua: Arc::new(Mutex::new(Lua::new())),
+            lua,
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             step_mode: Arc::new(Mutex::new(StepMode::Over)),
         }
@@ -334,7 +336,110 @@ impl DebugRuntime for LuaNextRuntime {
     async fn version(&self) -> RuntimeVersion {
         RuntimeVersion {
             runtime: RuntimeType::LuaNext,
-            version: LuaVersion::V54, // LuaNext supports 5.4+
+            version: LuaVersion::V54, // Assuming LuaNext targets 5.4
+        }
+    }
+
+    async fn hot_reload(
+        &mut self,
+        module_source: &str,
+        module_name: Option<&str>,
+    ) -> Result<crate::hot_reload::HotReloadResult, RuntimeError> {
+        #[cfg(feature = "hot-reload")]
+        {
+            use crate::hot_reload::{HotReloadResult, HotReloadWarning, WarningSeverity};
+            use crate::runtime::lua_ffi::*;
+
+            // Compile the module source
+            let compile_result: Result<(), RuntimeError> = {
+                let lua_guard = self.lua.lock().unwrap();
+                let lua_state = lua_guard.state();
+
+                unsafe {
+                    let source_cstr = std::ffi::CString::new(module_source)
+                        .map_err(|_| RuntimeError::Communication("Invalid source string".to_string()))?;
+
+                    if luaL_loadstring(lua_state, source_cstr.as_ptr()) != LUA_OK as i32 {
+                        // Get the error message
+                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
+                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                            if !c_str.is_null() {
+                                std::ffi::CStr::from_ptr(c_str)
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                "Unknown compilation error".to_string()
+                            }
+                        } else {
+                            "Unknown compilation error".to_string()
+                        };
+
+                        lua_pop(lua_state, 1); // Remove error message
+                        return Err(RuntimeError::Communication(format!("Compilation failed: {}", error_msg)));
+                    }
+                    Ok(())
+                }
+            };
+
+            compile_result?;
+
+            // Execute the compiled module
+            let execute_result: Result<(), RuntimeError> = {
+                let lua_guard = self.lua.lock().unwrap();
+                let lua_state = lua_guard.state();
+
+                unsafe {
+                    if lua_pcall(lua_state, 0, 1, 0) != LUA_OK as i32 {
+                        // Get the error message
+                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
+                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                            if !c_str.is_null() {
+                                std::ffi::CStr::from_ptr(c_str)
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                "Unknown execution error".to_string()
+                            }
+                        } else {
+                            "Unknown execution error".to_string()
+                        };
+
+                        lua_pop(lua_state, 1); // Remove error message
+                        return Err(RuntimeError::Communication(format!("Execution failed: {}", error_msg)));
+                    }
+
+                    // Pop the result
+                    lua_pop(lua_state, 1);
+                    Ok(())
+                }
+            };
+
+            execute_result?;
+
+            // Create warnings about limitations
+            let warnings = vec![
+                HotReloadWarning {
+                    message: "State preservation not yet implemented - local variables and upvalues will be reset".to_string(),
+                    severity: WarningSeverity::Warning,
+                },
+                HotReloadWarning {
+                    message: "Module references in existing closures will not be updated".to_string(),
+                    severity: WarningSeverity::Warning,
+                }
+            ];
+
+            Ok(HotReloadResult {
+                success: true,
+                warnings,
+                message: Some(format!("Module '{}' reloaded successfully",
+                                    module_name.unwrap_or("unnamed"))),
+            })
+        }
+
+        #[cfg(not(feature = "hot-reload"))]
+        {
+            let _ = (module_source, module_name);
+            Err(RuntimeError::NotImplemented("Hot reload feature not enabled".to_string()))
         }
     }
 

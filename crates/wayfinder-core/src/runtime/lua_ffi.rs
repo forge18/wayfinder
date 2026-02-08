@@ -214,10 +214,15 @@ extern "C" {
         name: *const c_char,
         mode: *const c_char,
     ) -> c_int;
+
+    // Additional FFI functions needed for hot reload
+    pub fn lua_pop(L: LuaState, n: c_int);
+    pub fn lua_pcall(L: LuaState, nargs: c_int, nresults: c_int, errfunc: c_int) -> c_int;
+    pub fn luaL_ref(L: LuaState, t: c_int) -> c_int;
+    pub fn luaL_unref(L: LuaState, t: c_int, ref_: c_int);
+    pub fn lua_pushglobaltable(L: LuaState);
     pub fn luaL_loadstring(L: LuaState, s: *const c_char) -> c_int;
     pub fn luaL_loadfilex(L: LuaState, filename: *const c_char, mode: *const c_char) -> c_int;
-    pub fn luaL_dofile(L: LuaState, filename: *const c_char) -> c_int;
-    pub fn luaL_dostring(L: LuaState, s: *const c_char) -> c_int;
 
     pub fn luaL_newmetatable(L: LuaState, tname: *const c_char) -> c_int;
     pub fn luaL_setmetatable(L: LuaState, tname: *const c_char);

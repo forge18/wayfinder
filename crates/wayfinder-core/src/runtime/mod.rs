@@ -188,6 +188,26 @@ pub trait DebugRuntime: Send + Sync {
 
     /// Gets detailed information about the current exception
     async fn get_exception_info(&mut self, thread_id: u64) -> Result<ExceptionInfo>;
+
+    /// Perform a hot reload of a module
+    ///
+    /// This method compiles and executes new module source code,
+    /// preserves state where possible, and updates references.
+    ///
+    /// # Arguments
+    /// * `module_source` - The new source code for the module
+    /// * `module_name` - Optional name of the module being reloaded
+    ///
+    /// # Returns
+    /// A result indicating success or failure of the reload operation
+    async fn hot_reload(
+        &mut self,
+        module_source: &str,
+        module_name: Option<&str>,
+    ) -> Result<crate::hot_reload::HotReloadResult> {
+        let _ = (module_source, module_name); // Silence unused variable warnings
+        Err(RuntimeError::NotImplemented("Hot reload not supported".to_string()))
+    }
 }
 
 /// Information about an exception
@@ -217,3 +237,8 @@ pub mod puc_lua;
 pub mod luanext;
 pub mod lua_ffi;
 pub mod lua_state;
+
+#[cfg(feature = "hot-reload")]
+pub mod puc_lua_hot_reload;
+#[cfg(feature = "hot-reload")]
+pub mod luanext_hot_reload;

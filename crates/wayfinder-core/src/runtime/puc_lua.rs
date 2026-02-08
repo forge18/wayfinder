@@ -73,8 +73,12 @@ extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
                     if depth <= STEP_DEPTH.load(Ordering::SeqCst) {
                         true
                     } else {
-        false
-    }
+                        false
+                    }
+                },
+                StepMode::Out => {
+                    let depth = (*ar).linedefined as usize;
+                    depth < STEP_DEPTH.load(Ordering::SeqCst)
                 }
             }
         } else {
@@ -112,8 +116,10 @@ impl PUCLuaRuntime {
             CURRENT_LINE.store(1, Ordering::SeqCst);
         }
 
+        let lua = Arc::new(Mutex::new(Lua::new()));
+
         Self {
-            lua: Arc::new(Mutex::new(Lua::new())),
+            lua,
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             detailed_breakpoints: Arc::new(Mutex::new(HashMap::new())),
             watchpoint_manager: Arc::new(RwLock::new(WatchpointManager::new())),
@@ -365,12 +371,114 @@ impl PUCLuaRuntime {
 }
 
 #[async_trait]
-#[async_trait]
 impl DebugRuntime for PUCLuaRuntime {
     async fn version(&self) -> RuntimeVersion {
         RuntimeVersion {
             runtime: RuntimeType::PUC,
             version: LuaVersion::V54,
+        }
+    }
+
+    async fn hot_reload(
+        &mut self,
+        module_source: &str,
+        module_name: Option<&str>,
+    ) -> Result<crate::hot_reload::HotReloadResult, RuntimeError> {
+        #[cfg(feature = "hot-reload")]
+        {
+            use crate::hot_reload::{HotReloadResult, HotReloadWarning, WarningSeverity};
+            use crate::runtime::lua_ffi::*;
+
+            // Compile the module source
+            let compile_result: Result<(), RuntimeError> = {
+                let lua_guard = self.lua.lock().unwrap();
+                let lua_state = lua_guard.state();
+
+                unsafe {
+                    let source_cstr = std::ffi::CString::new(module_source)
+                        .map_err(|_| RuntimeError::Communication("Invalid source string".to_string()))?;
+
+                    if luaL_loadstring(lua_state, source_cstr.as_ptr()) != LUA_OK as i32 {
+                        // Get the error message
+                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
+                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                            if !c_str.is_null() {
+                                std::ffi::CStr::from_ptr(c_str)
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                "Unknown compilation error".to_string()
+                            }
+                        } else {
+                            "Unknown compilation error".to_string()
+                        };
+
+                        lua_pop(lua_state, 1); // Remove error message
+                        return Err(RuntimeError::Communication(format!("Compilation failed: {}", error_msg)));
+                    }
+                    Ok(())
+                }
+            };
+
+            compile_result?;
+
+            // Execute the compiled module
+            let execute_result: Result<(), RuntimeError> = {
+                let lua_guard = self.lua.lock().unwrap();
+                let lua_state = lua_guard.state();
+
+                unsafe {
+                    if lua_pcall(lua_state, 0, 1, 0) != LUA_OK as i32 {
+                        // Get the error message
+                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
+                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                            if !c_str.is_null() {
+                                std::ffi::CStr::from_ptr(c_str)
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                "Unknown execution error".to_string()
+                            }
+                        } else {
+                            "Unknown execution error".to_string()
+                        };
+
+                        lua_pop(lua_state, 1); // Remove error message
+                        return Err(RuntimeError::Communication(format!("Execution failed: {}", error_msg)));
+                    }
+
+                    // Pop the result
+                    lua_pop(lua_state, 1);
+                    Ok(())
+                }
+            };
+
+            execute_result?;
+
+            // Create warnings about limitations
+            let warnings = vec![
+                HotReloadWarning {
+                    message: "State preservation not yet implemented - local variables and upvalues will be reset".to_string(),
+                    severity: WarningSeverity::Warning,
+                },
+                HotReloadWarning {
+                    message: "Module references in existing closures will not be updated".to_string(),
+                    severity: WarningSeverity::Warning,
+                }
+            ];
+
+            Ok(HotReloadResult {
+                success: true,
+                warnings,
+                message: Some(format!("Module '{}' reloaded successfully",
+                                    module_name.unwrap_or("unnamed"))),
+            })
+        }
+
+        #[cfg(not(feature = "hot-reload"))]
+        {
+            let _ = (module_source, module_name);
+            Err(RuntimeError::NotImplemented("Hot reload feature not enabled".to_string()))
         }
     }
 
@@ -856,64 +964,6 @@ impl PUCLuaRuntime {
         
         false
     }
-            
-            // If we got a current value, check if it has changed
-            if let Some(value) = current_value {
-                // Check if the value has changed
-                if watchpoint_manager.has_data_breakpoint_value_changed(watchpoint.id, &value) {
-                    // Value has changed, update the previous value
-                    drop(watchpoint_manager); // Release the read lock
-                    let mut watchpoint_manager = self.watchpoint_manager.write().unwrap();
-                    watchpoint_manager.update_data_breakpoint_previous_value(watchpoint.id, value.clone());
-                    
-                    // Check access type - for now we'll assume we're monitoring writes
-                    if matches!(watchpoint.access_type, AccessType::Write | AccessType::ReadWrite) {
-                        // Check hit conditions
-                        let should_trigger = if let Some(hit_condition) = &watchpoint.hit_condition {
-                            if !hit_condition.trim().is_empty() {
-                                watchpoint_manager.increment_data_breakpoint_hit_count(watchpoint.id);
-                                let hit_count = watchpoint_manager.get_data_breakpoint_hit_count(watchpoint.id).unwrap_or(0);
-                                match super::super::debug::hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
-                                    Ok(should_hit) => should_hit,
-                                    Err(e) => {
-                                        eprintln!("Warning: Hit condition evaluation failed for watchpoint {}: {}", watchpoint.name, e);
-                                        true // Break on error
-                                    }
-                                }
-                            } else {
-                                true
-                            }
-                        } else {
-                            watchpoint_manager.increment_data_breakpoint_hit_count(watchpoint.id);
-                            true
-                        };
-                        
-                        if should_trigger {
-                            // Check condition if present
-                            let should_break = if let Some(condition) = &watchpoint.condition {
-                                if !condition.trim().is_empty() {
-                                    // In a full implementation, we would evaluate the condition
-                                    // in the current context, but for now we'll just return true
-                                    true
-                                } else {
-                                    true
-                                }
-                            } else {
-                                true
-                            };
-                            
-                            if should_break {
-                                println!("Watchpoint triggered: {} = {}", watchpoint.name, value);
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        false
-    }
 
     /// Sets the debugger configuration
     pub fn set_config(&mut self, config: DebuggerConfig) {
@@ -936,7 +986,7 @@ impl PUCLuaRuntime {
         let mut lua = self.lua.lock().unwrap();
         
         // Create debug info structure for the specified frame
-        let mut ar = std::mem::zeroed::<lua_Debug>();
+        let mut ar = unsafe { std::mem::zeroed::<lua_Debug>() };
         if lua.get_stack(frame_id as c_int, &mut ar) != 0 {
             // Search for the variable in local scope
             let mut index = 1i32;
@@ -1313,13 +1363,13 @@ impl PUCLuaRuntime {
             let mut lua = self.lua.lock().unwrap();
             
             // Create debug info structure for the specified frame
-            let mut ar = std::mem::zeroed::<lua_Debug>();
+            let mut ar = unsafe { std::mem::zeroed::<lua_Debug>() };
             if lua.get_stack(frame_id as c_int, &mut ar) != 0 {
                 // Search for the variable in local scope
                 let mut index = 1i32;
                 loop {
-                    // Get local variable name
-                    let name_opt = lua.get_local(&ar, index);
+                // Get local variable name
+                let name_opt = lua.get_local(&mut ar, index);
                     
                     match name_opt {
                         Some(name) => {

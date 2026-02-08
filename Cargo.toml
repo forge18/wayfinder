@@ -9,7 +9,6 @@ authors = ["Wayfinder Contributors"]
 members = [
     "crates/wayfinder-core",
     "crates/wayfinder-cli",
-    "crates/wayfinder-tl",
 ]
 
 [workspace.package]

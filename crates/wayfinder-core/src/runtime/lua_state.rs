@@ -5,6 +5,7 @@ use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
+#[derive(Clone)]
 pub struct Lua {
     state: LuaState,
 }
