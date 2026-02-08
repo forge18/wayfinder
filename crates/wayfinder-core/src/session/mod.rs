@@ -1,4 +1,5 @@
 use super::debug::breakpoints::BreakpointManager;
+use super::debug::conditions::ConditionEvaluator;
 use super::runtime::{BreakpointType, DebugRuntime, Frame, Scope, StepMode, Variable, Value};
 use serde_json::{json, Value as JsonValue};
 
