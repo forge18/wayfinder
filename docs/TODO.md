@@ -1,7 +1,7 @@
 # Wayfinder TODO
 
 **Plan:** [docs/PLAN.md](./PLAN.md)
-**Status:** Phase 1 Complete - Phase 2 Complete - Phase 3 Complete - Phase 4 Complete
+**Status:** Phase 1 Complete - Phase 2 Complete - Phase 3 Complete - Phase 4 Complete - Phase 5 In Progress
 
 ---
 

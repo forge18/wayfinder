@@ -76,6 +76,7 @@ impl<R: DebugRuntime> DebugSession<R> {
             hit_condition: None,
             verified: bp.verified,
             message: bp.message,
+            hit_count: 0,
         };
         
         Ok(line_bp)
@@ -112,6 +113,7 @@ impl<R: DebugRuntime> DebugSession<R> {
             condition: None,
             verified: bp.verified,
             message: bp.message,
+            hit_count: 0,
         };
         
         Ok(func_bp)
@@ -146,38 +148,48 @@ impl<R: DebugRuntime> DebugSession<R> {
     /// Check if any watchpoints have been triggered
     pub async fn check_watchpoints(&mut self, frame_id: i64) -> Result<bool, super::runtime::RuntimeError> {
         // Call the runtime's check_watchpoints method
-        self.runtime.check_watchpoints(frame_id).await
+        self.runtime.check_data_breakpoints(frame_id).await
     }
 
     /// Checks if we should stop at a line breakpoint based on its conditions
     pub async fn should_stop_at_line_breakpoint(&mut self, source: &str, line: u32) -> Result<bool, super::runtime::RuntimeError> {
-        // Find the breakpoint in our manager
-        if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
-            // First check hit conditions
-            if let Some(hit_condition) = &breakpoint.hit_condition {
-                if !hit_condition.trim().is_empty() {
-                    // Increment hit count first
-                    self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
-                    
-                    // Get the current hit count
-                    if let Some(hit_count) = self.breakpoint_manager.get_line_breakpoint_hit_count(source, line) {
-                        match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
-                            Ok(should_hit) => {
-                                if !should_hit {
-                                    return Ok(false); // Don't stop, hit condition not met
+        // Get the breakpoint ID first to avoid borrow conflicts
+        let breakpoint_id = {
+            if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
+                Some(breakpoint.id)
+            } else {
+                None
+            }
+        };
+        
+        if let Some(_id) = breakpoint_id {
+            // Find the breakpoint again (we need to reborrow)
+            if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
+                // First check hit conditions
+                if let Some(hit_condition) = &breakpoint.hit_condition {
+                    if !hit_condition.trim().is_empty() {
+                        // Increment hit count first
+                        self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
+                        
+                        // Get the current hit count
+                        if let Some(hit_count) = self.breakpoint_manager.get_line_breakpoint_hit_count(source, line) {
+                            match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                                Ok(should_hit) => {
+                                    if !should_hit {
+                                        return Ok(false); // Don't stop, hit condition not met
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                eprintln!("Warning: Hit condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
-                                // If hit condition evaluation fails, we still break but log the error
+                                Err(e) => {
+                                    eprintln!("Warning: Hit condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
+                                    // If hit condition evaluation fails, we still break but log the error
+                                }
                             }
                         }
                     }
+                } else {
+                    // No hit condition, just increment the count
+                    self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
                 }
-            } else {
-                // No hit condition, just increment the count
-                self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
-            }
 
             // Handle logpoints
             if let Some(log_message) = &breakpoint.log_message {
@@ -224,54 +236,64 @@ impl<R: DebugRuntime> DebugSession<R> {
 
     /// Checks if we should stop at a function breakpoint based on its conditions
     pub async fn should_stop_at_function_breakpoint(&mut self, name: &str) -> Result<bool, super::runtime::RuntimeError> {
-        // Find the breakpoint in our manager
-        if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
-            // Handle logpoints (function breakpoints don't typically have log messages, but we'll support it)
-            if let Some(log_message) = &breakpoint.log_message {
-                if !log_message.is_empty() {
-                    // Process the logpoint message
-                    match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
-                        Ok(message) => {
-                            // In a real implementation, we would send this as a DAP output event
-                            println!("Logpoint: {}", message);
-                        }
-                        Err(e) => {
-                            eprintln!("Warning: Logpoint evaluation failed: {}", e);
-                        }
-                    }
-                    
-                    // If it's only a logpoint (no condition), don't stop
-                    if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
-                        return Ok(false);
-                    }
-                }
+        // Get the breakpoint ID first to avoid borrow conflicts
+        let breakpoint_id = {
+            if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
+                Some(breakpoint.id)
+            } else {
+                None
             }
-
-            // First check hit conditions
-            if let Some(hit_condition) = &breakpoint.hit_condition {
-                if !hit_condition.trim().is_empty() {
-                    // Increment hit count first
-                    self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
-                    
-                    // Get the current hit count
-                    if let Some(hit_count) = self.breakpoint_manager.get_function_breakpoint_hit_count(name) {
-                        match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
-                            Ok(should_hit) => {
-                                if !should_hit {
-                                    return Ok(false); // Don't stop, hit condition not met
-                                }
+        };
+        
+        if let Some(_id) = breakpoint_id {
+            // Find the breakpoint again (we need to reborrow)
+            if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
+                // Handle logpoints (function breakpoints don't typically have log messages, but we'll support it)
+                if let Some(log_message) = &breakpoint.log_message {
+                    if !log_message.is_empty() {
+                        // Process the logpoint message
+                        match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
+                            Ok(message) => {
+                                // In a real implementation, we would send this as a DAP output event
+                                println!("Logpoint: {}", message);
                             }
                             Err(e) => {
-                                eprintln!("Warning: Hit condition evaluation failed for function breakpoint '{}': {}", name, e);
-                                // If hit condition evaluation fails, we still break but log the error
+                                eprintln!("Warning: Logpoint evaluation failed: {}", e);
                             }
+                        }
+                        
+                        // If it's only a logpoint (no condition), don't stop
+                        if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
+                            return Ok(false);
                         }
                     }
                 }
-            } else {
-                // No hit condition, just increment the count
-                self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
-            }
+
+                // First check hit conditions
+                if let Some(hit_condition) = &breakpoint.hit_condition {
+                    if !hit_condition.trim().is_empty() {
+                        // Increment hit count first
+                        self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
+                        
+                        // Get the current hit count
+                        if let Some(hit_count) = self.breakpoint_manager.get_function_breakpoint_hit_count(name) {
+                            match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                                Ok(should_hit) => {
+                                    if !should_hit {
+                                        return Ok(false); // Don't stop, hit condition not met
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: Hit condition evaluation failed for function breakpoint '{}': {}", name, e);
+                                    // If hit condition evaluation fails, we still break but log the error
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // No hit condition, just increment the count
+                    self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
+                }
 
             // Check conditional breakpoint
             if let Some(condition) = &breakpoint.condition {
@@ -453,6 +475,7 @@ impl<R: DebugRuntime> DapServer<R> {
                 hit_condition: bp.get("hitCondition").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 verified: false, // Will be set by runtime
                 message: None,
+                hit_count: 0,
             });
         }
 
@@ -506,6 +529,7 @@ impl<R: DebugRuntime> DapServer<R> {
                 condition: bp.get("condition").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 verified: false, // Will be set by runtime
                 message: None,
+                hit_count: 0,
             });
         }
 
@@ -601,6 +625,7 @@ impl<R: DebugRuntime> DapServer<R> {
                 hit_count: 0,
                 data_type: super::debug::watchpoints::DataType::Local, // Default for now
                 access_type: super::debug::watchpoints::AccessType::ReadWrite, // Default for now
+                previous_value: None,
             });
         }
 

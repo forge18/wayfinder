@@ -273,15 +273,3 @@ pub const LUA_OPUNM: c_int = 6;
 pub const LUA_OPEQ: c_int = 0;
 pub const LUA_OPLT: c_int = 1;
 pub const LUA_OPLE: c_int = 2;
-
-// Debug API functions
-pub fn lua_getstack(L: LuaState, level: c_int, ar: *mut lua_Debug) -> c_int;
-pub fn lua_getinfo(L: LuaState, what: *const c_char, ar: *mut lua_Debug) -> c_int;
-pub fn lua_getlocal(L: LuaState, ar: *const lua_Debug, n: c_int) -> *const c_char;
-pub fn lua_setlocal(L: LuaState, ar: *const lua_Debug, n: c_int) -> *const c_char;
-pub fn lua_getupvalue(L: LuaState, funcindex: c_int, n: c_int) -> *const c_char;
-pub fn lua_setupvalue(L: LuaState, funcindex: c_int, n: c_int) -> *const c_char;
-pub fn lua_sethook(L: LuaState, f: LuaHook, mask: c_int, count: c_int);
-pub fn lua_gethook(L: LuaState) -> LuaHook;
-pub fn lua_gethookmask(L: LuaState) -> c_int;
-pub fn lua_gethookcount(L: LuaState) -> c_int;

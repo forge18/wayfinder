@@ -21,7 +21,7 @@ unsafe fn check_watchpoints(_L: LuaState, _ar: *mut lua_Debug) -> bool {
     // significant implementation work
     false
 }
-use crate::runtime::lua_state::{Lua, DebugInfo};
+use crate::runtime::lua_state::DebugInfo;
 use crate::runtime::lua_ffi::*;
 use async_trait::async_trait;
 use libc::c_int;
@@ -367,6 +367,7 @@ impl PUCLuaRuntime {
     }
 }
 
+#[async_trait]
 #[async_trait]
 impl DebugRuntime for PUCLuaRuntime {
     async fn version(&self) -> RuntimeVersion {
@@ -758,6 +759,10 @@ impl DebugRuntime for PUCLuaRuntime {
     async fn source(&mut self, _source_reference: i64) -> Result<String, RuntimeError> {
         Err(RuntimeError::NotImplemented("source not implemented".to_string()))
     }
+
+    async fn get_exception_info(&mut self, _thread_id: u64) -> Result<ExceptionInfo, RuntimeError> {
+        Err(RuntimeError::NotImplemented("get_exception_info not implemented".to_string()))
+    }
 }
 
 impl PUCLuaRuntime {
@@ -867,7 +872,7 @@ impl PUCLuaRuntime {
     }
 
     /// Check if any watchpoints have been triggered (public method)
-    pub async fn check_watchpoints(&self, frame_id: i64) -> Result<bool, RuntimeError> {
+    pub async fn check_data_breakpoints(&self, frame_id: i64) -> Result<bool, RuntimeError> {
         // Call the internal check_watchpoints method
         Ok(self.check_watchpoints(frame_id))
     }

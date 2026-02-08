@@ -184,7 +184,7 @@ pub trait DebugRuntime: Send + Sync {
     async fn source(&mut self, source_reference: i64) -> Result<String>;
 
     /// Gets detailed information about the current exception
-    async fn get_exception_info(&mut self, thread_id: u64) -> Result<ExceptionInfo, RuntimeError>;
+    async fn get_exception_info(&mut self, thread_id: u64) -> Result<ExceptionInfo>;
 }
 
 /// Information about an exception

@@ -689,6 +689,10 @@ impl DebugRuntime for LuaNextRuntime {
     async fn source(&mut self, _source_reference: i64) -> Result<String, RuntimeError> {
         Err(RuntimeError::NotImplemented("source not implemented".to_string()))
     }
+
+    async fn get_exception_info(&mut self, _thread_id: u64) -> Result<ExceptionInfo, RuntimeError> {
+        Err(RuntimeError::NotImplemented("get_exception_info not implemented".to_string()))
+    }
 }
 
 #[cfg(test)]

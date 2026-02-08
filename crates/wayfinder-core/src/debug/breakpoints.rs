@@ -43,6 +43,10 @@ pub struct FunctionBreakpoint {
     pub name: String,
     /// Optional condition that must be true for the breakpoint to trigger
     pub condition: Option<String>,
+    /// Optional log message to output instead of pausing execution
+    pub log_message: Option<String>,
+    /// Optional hit condition (e.g., "> 5" to trigger after 5 hits)
+    pub hit_condition: Option<String>,
     /// Whether the breakpoint is verified (successfully set in the runtime)
     pub verified: bool,
     /// Optional message about the breakpoint status

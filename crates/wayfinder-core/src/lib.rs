@@ -1,6 +1,7 @@
 pub mod config;
 pub mod dap;
 pub mod debug;
+pub mod hot_reload;
 pub mod runtime;
 pub mod session;
 pub mod sourcemap;
