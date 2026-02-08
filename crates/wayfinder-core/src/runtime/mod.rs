@@ -48,6 +48,24 @@ pub enum StepMode {
     Out,
 }
 
+impl StepMode {
+    pub fn to_u32(&self) -> u32 {
+        match self {
+            StepMode::Over => 0,
+            StepMode::In => 1,
+            StepMode::Out => 2,
+        }
+    }
+
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => StepMode::Over,
+            1 => StepMode::In,
+            _ => StepMode::Out,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VariableScope {
     Local,
