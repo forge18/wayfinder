@@ -87,8 +87,8 @@ src/
 
 ### LuaNext Integration
 
-- [ ] Implement `runtime/luanext.rs` (initially same as PUC Lua)
-- [ ] Use `debug.sethook` compatibility layer
+- [x] Implement `runtime/luanext.rs` (initially same as PUC Lua)
+- [x] Use `debug.sethook` compatibility layer
 
 ### Breakpoints
 

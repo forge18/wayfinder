@@ -193,5 +193,6 @@ pub struct Scope {
 
 pub mod mock;
 pub mod puc_lua;
+pub mod luanext;
 pub mod lua_ffi;
 pub mod lua_state;
