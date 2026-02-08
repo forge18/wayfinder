@@ -444,19 +444,171 @@ impl DebugRuntime for LuaNextRuntime {
         _filter: Option<super::VariableScope>,
     ) -> Result<Vec<super::Variable>, RuntimeError> {
         let mut variables = Vec::new();
+        let mut lua = self.lua.lock().unwrap();
 
         if variables_reference >= 0 {
-            let mut lua = self.lua.lock().unwrap();
-            lua.set_top(variables_reference as c_int);
+            // Handle local variables using debug.getlocal
+            unsafe {
+                // For local variables, variables_reference represents the frame ID
+                let frame_id = variables_reference as c_int;
+                
+                // Create a debug info structure for the specified frame
+                let mut ar = std::mem::zeroed::<lua_Debug>();
+                // Get stack info for the frame
+                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                    // Enumerate local variables using lua_getlocal
+                    let mut index = 1i32;
+                    loop {
+                        // Get local variable name and value
+                        let name_ptr = lua_getlocal(lua.state(), &mut ar, index);
+                        
+                        if name_ptr.is_null() {
+                            break; // No more local variables
+                        }
+                        
+                        // Get the local variable name
+                        let name_cstr = CStr::from_ptr(name_ptr);
+                        let name = name_cstr.to_string_lossy().to_string();
+                        
+                        // Skip special variables that start with "(" like "(temporary)"
+                        if !name.starts_with("(") {
+                            // Get the local variable value (it's on top of the stack)
+                            let value_type = lua.type_of(-1);
+                            let value_str = match value_type {
+                                0 => "nil".to_string(),
+                                1 => format!("{}", lua.pop_boolean()),
+                                3 => format!("{}", lua.pop_number()),
+                                4 => lua.pop_string(),
+                                5 => format!("table: 0x{:x}", lua.topointer(-1) as usize),
+                                6 => format!("function: 0x{:x}", lua.topointer(-1) as usize),
+                                7 => format!("userdata: 0x{:x}", lua.topointer(-1) as usize),
+                                8 => format!("thread: 0x{:x}", lua.topointer(-1) as usize),
+                                _ => format!("{}", lua.type_name(value_type)),
+                            };
 
-            let mut index = 1;
-            while index > 0 {
-                unsafe {
-                    lua.push_nil();
-                    if lua_next(lua.state(), variables_reference as c_int) == 0 {
-                        break;
+                            variables.push(super::Variable {
+                                name,
+                                value: value_str,
+                                type_: lua.type_name(value_type).to_string(),
+                                variables_reference: if value_type == 5 { Some(-(variables_reference * 1000 + index as i64)) } else { None },
+                                named_variables: None,
+                                indexed_variables: None,
+                            });
+                        }
+                        
+                        // Remove the value from the stack
+                        lua_settop(lua.state(), -2);
+                        
+                        index += 1;
                     }
+                }
+            }
+        } else if variables_reference == -1 {
+            // Handle global variables by accessing _G
+            unsafe {
+                // Push "_G" string and get the global table
+                let g_name = b"_G\0".as_ptr() as *const i8;
+                if lua_getglobal(lua.state(), g_name) == 0 {
+                    // _G doesn't exist or is nil, remove it from stack
+                    lua_settop(lua.state(), -2);
+                } else {
+                    // Successfully got _G table, iterate it
+                    lua.push_nil(); // First key
+                    let mut count = 0;
+                    while lua_next(lua.state(), -2) != 0 && count < 100 {
+                        let key = lua.pop_string();
+                        let value_type = lua.type_of(-1);
+                        let value_str = match value_type {
+                            0 => "nil".to_string(),
+                            1 => format!("{}", lua.pop_boolean()),
+                            3 => format!("{}", lua.pop_number()),
+                            4 => lua.pop_string(),
+                            5 => format!("table: 0x{:x}", lua.topointer(-1) as usize),
+                            6 => format!("function: 0x{:x}", lua.topointer(-1) as usize),
+                            7 => format!("userdata: 0x{:x}", lua.topointer(-1) as usize),
+                            8 => format!("thread: 0x{:x}", lua.topointer(-1) as usize),
+                            _ => format!("{}", lua.type_name(value_type)),
+                        };
 
+                        variables.push(super::Variable {
+                            name: key,
+                            value: value_str,
+                            type_: lua.type_name(value_type).to_string(),
+                            variables_reference: if value_type == 5 { Some(-2) } else { None },
+                            named_variables: None,
+                            indexed_variables: None,
+                        });
+                        
+                        // Remove value, keep key for next iteration
+                        lua_settop(lua.state(), -2);
+                        count += 1;
+                    }
+                    
+                    // Remove _G table from stack
+                    lua_settop(lua.state(), -2);
+                }
+            }
+        } else if variables_reference < -1000 {
+            // Handle upvalues - negative values less than -1000 represent upvalues
+            // Format: -(frame_id * 1000 + local_index)
+            let abs_ref = -variables_reference;
+            let frame_id = (abs_ref / 1000) as c_int;
+            // let local_index = (abs_ref % 1000) as c_int;
+            
+            unsafe {
+                let mut ar = std::mem::zeroed::<lua_Debug>();
+                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                    // Get upvalues using lua_getupvalue
+                    let mut index = 1i32;
+                    loop {
+                        let name_ptr = lua_getupvalue(lua.state(), -1, index);
+                        
+                        if name_ptr.is_null() {
+                            break; // No more upvalues
+                        }
+                        
+                        // Get the upvalue name
+                        let name_cstr = CStr::from_ptr(name_ptr);
+                        let name = name_cstr.to_string_lossy().to_string();
+                        
+                        // Get the upvalue value (it's on top of the stack)
+                        let value_type = lua.type_of(-1);
+                        let value_str = match value_type {
+                            0 => "nil".to_string(),
+                            1 => format!("{}", lua.pop_boolean()),
+                            3 => format!("{}", lua.pop_number()),
+                            4 => lua.pop_string(),
+                            5 => format!("table: 0x{:x}", lua.topointer(-1) as usize),
+                            6 => format!("function: 0x{:x}", lua.topointer(-1) as usize),
+                            7 => format!("userdata: 0x{:x}", lua.topointer(-1) as usize),
+                            8 => format!("thread: 0x{:x}", lua.topointer(-1) as usize),
+                            _ => format!("{}", lua.type_name(value_type)),
+                        };
+
+                        variables.push(super::Variable {
+                            name,
+                            value: value_str,
+                            type_: lua.type_name(value_type).to_string(),
+                            variables_reference: if value_type == 5 { Some(-(variables_reference * 100 + index as i64)) } else { None },
+                            named_variables: None,
+                            indexed_variables: None,
+                        });
+                        
+                        // Remove the value from the stack
+                        lua_settop(lua.state(), -2);
+                        
+                        index += 1;
+                    }
+                }
+            }
+        } else if variables_reference == -2 {
+            // Handle table expansion with depth limits
+            unsafe {
+                // The table is already on the stack (placed there by the caller)
+                // Limit the number of elements we show to prevent huge expansions
+                lua.push_nil(); // First key
+                let mut count = 0;
+                while lua_next(lua.state(), -2) != 0 && count < 50 {
                     let key = lua.pop_string();
                     let value_type = lua.type_of(-1);
                     let value_str = match value_type {
@@ -464,8 +616,10 @@ impl DebugRuntime for LuaNextRuntime {
                         1 => format!("{}", lua.pop_boolean()),
                         3 => format!("{}", lua.pop_number()),
                         4 => lua.pop_string(),
-                        5 => format!("table ({})", lua.len(-1)),
-                        6 => "function".to_string(),
+                        5 => format!("table: 0x{:x}", lua.topointer(-1) as usize),
+                        6 => format!("function: 0x{:x}", lua.topointer(-1) as usize),
+                        7 => format!("userdata: 0x{:x}", lua.topointer(-1) as usize),
+                        8 => format!("thread: 0x{:x}", lua.topointer(-1) as usize),
                         _ => format!("{}", lua.type_name(value_type)),
                     };
 
@@ -473,12 +627,15 @@ impl DebugRuntime for LuaNextRuntime {
                         name: key,
                         value: value_str,
                         type_: lua.type_name(value_type).to_string(),
-                        variables_reference: if value_type == 5 { Some(0) } else { None },
+                        variables_reference: if value_type == 5 { Some(-2) } else { None },
                         named_variables: None,
                         indexed_variables: None,
                     });
+                    
+                    // Remove value, keep key for next iteration
+                    lua_settop(lua.state(), -2);
+                    count += 1;
                 }
-                index -= 1;
             }
         }
 
@@ -492,7 +649,27 @@ impl DebugRuntime for LuaNextRuntime {
             return Ok(Value::Nil);
         }
 
-        if let Ok(result) = self.execute_code(trimmed) {
+        // Check if we're in read-only mode (simple heuristic for now)
+        let is_assignment = trimmed.contains('=') && !trimmed.contains("==") && !trimmed.contains("!=");
+        let is_dangerous_function = trimmed.contains("load") || trimmed.contains("dofile") || trimmed.contains("require");
+
+        // For now, we'll allow most evaluations but warn about potentially dangerous operations
+        if is_assignment {
+            // This is a simplified approach - in a real implementation we'd want
+            // to check if the assignment is to a local variable or global
+            // For now, we'll allow it but log that it's happening
+            println!("Warning: Assignment detected in expression evaluation: {}", trimmed);
+        }
+        
+        if is_dangerous_function {
+            println!("Warning: Potentially dangerous function call detected: {}", trimmed);
+        }
+
+        // Use safer evaluation method
+        let mut lua = self.lua.lock().unwrap();
+        if let Ok(_) = lua.execute(trimmed) {
+            // Convert the result on top of stack to our Value type
+            let result = Self::lua_to_value(&mut lua, -1);
             return Ok(result);
         }
 

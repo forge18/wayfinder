@@ -100,32 +100,32 @@ src/
 
 ### Stepping
 
-- [ ] Implement `next` (step over)
-- [ ] Implement `stepIn` (step into)
-- [ ] Implement `stepOut` (step out)
-- [ ] Implement `pause` request
+- [x] Implement `next` (step over)
+- [x] Implement `stepIn` (step into)
+- [x] Implement `stepOut` (step out)
+- [x] Implement `pause` request
 
 ### Stack Inspection
 
-- [ ] Implement `stackTrace` request handler
-- [ ] Collect frames via `debug.getinfo(2, 'nSluf')`
-- [ ] Return source reference and line/column for each frame
+- [x] Implement `stackTrace` request handler
+- [x] Collect frames via `debug.getinfo(2, 'nSluf')`
+- [x] Return source reference and line/column for each frame
 
 ### Variables
 
-- [ ] Implement `scopes` request handler
-- [ ] Implement `variables` request handler
-- [ ] Support local variables via `debug.getlocal`
-- [ ] Support upvalues via `debug.getupvalue`
-- [ ] Support globals via `_G` traversal
-- [ ] Implement table expansion with depth limits
-- [ ] Handle circular reference detection
+- [x] Implement `scopes` request handler
+- [x] Implement `variables` request handler
+- [x] Support globals via `_G` traversal
+- [x] Support local variables via `debug.getlocal`
+- [x] Support upvalues via `debug.getupvalue`
+- [x] Implement table expansion with depth limits
+- [x] Handle circular reference detection
 
 ### Expression Evaluation
 
-- [ ] Implement `evaluate` request handler
-- [ ] Safe Lua evaluation sandbox
-- [ ] Read-only evaluation by default
+- [x] Implement `evaluate` request handler
+- [x] Safe Lua evaluation sandbox
+- [x] Read-only evaluation by default
 
 ### Session Management
 

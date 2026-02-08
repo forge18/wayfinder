@@ -257,6 +257,10 @@ impl Lua {
         }
     }
 
+    pub fn topointer(&mut self, idx: c_int) -> *const c_void {
+        unsafe { lua_topointer(self.state, idx) }
+    }
+
     pub fn error(&mut self, msg: &str) {
         unsafe {
             let _msg_ptr = CString::new(msg).unwrap();

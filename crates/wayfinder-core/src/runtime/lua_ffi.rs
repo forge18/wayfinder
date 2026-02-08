@@ -153,6 +153,8 @@ extern "C" {
     pub fn lua_setlocal(L: LuaState, ar: *mut lua_Debug, n: c_int) -> *const c_char;
     pub fn lua_getupvalue(L: LuaState, funcindex: c_int, n: c_int) -> *const c_char;
     pub fn lua_setupvalue(L: LuaState, funcindex: c_int, n: c_int) -> *const c_char;
+    pub fn lua_getstack(L: LuaState, level: c_int, ar: *mut lua_Debug) -> c_int;
+    pub fn lua_topointer(L: LuaState, idx: c_int) -> *const c_void;
 
     pub fn lua_upvalueid(L: LuaState, fidx: c_int, n: c_int) -> *mut c_void;
     pub fn lua_upvaluejoin(L: LuaState, fidx1: c_int, n1: c_int, fidx2: c_int, n2: c_int);
@@ -238,6 +240,8 @@ pub const LUA_TTABLE: c_int = 5;
 pub const LUA_TFUNCTION: c_int = 6;
 pub const LUA_TUSERDATA: c_int = 7;
 pub const LUA_TTHREAD: c_int = 8;
+
+pub const LUA_REGISTRYINDEX: c_int = -1000000;
 
 pub const LUA_HOOKCALL: c_int = 0;
 pub const LUA_HOOKRET: c_int = 1;
