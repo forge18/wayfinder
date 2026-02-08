@@ -182,6 +182,24 @@ pub trait DebugRuntime: Send + Sync {
     async fn run_to_location(&mut self, source: &str, line: u32) -> Result<()>;
 
     async fn source(&mut self, source_reference: i64) -> Result<String>;
+
+    /// Gets detailed information about the current exception
+    async fn get_exception_info(&mut self, thread_id: u64) -> Result<ExceptionInfo, RuntimeError>;
+}
+
+/// Information about an exception
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ExceptionInfo {
+    /// The exception type name
+    pub exception_type: String,
+    /// The exception message
+    pub message: String,
+    /// Stack trace at the point of the exception
+    pub stack_trace: Vec<Frame>,
+    /// Inner exception information, if any
+    pub inner_exception: Option<Box<ExceptionInfo>>,
+    /// Details about the exception
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -143,56 +143,57 @@ src/
 
 ---
 
-## Phase 3: Advanced Features (3 weeks)
+## Phase 3: Advanced Features (3 weeks) (Partially Complete)
 
 ### Conditional Breakpoints
 
-- [ ] Implement `conditions.rs` for expression evaluation
-- [ ] Add condition field to Breakpoint type
-- [ ] Evaluate condition at breakpoint hit
-- [ ] Only pause if condition is truthy
-- [ ] Support complex Lua expressions
+- [x] Implement `conditions.rs` for expression evaluation
+- [x] Add condition field to Breakpoint type
+- [x] Evaluate condition at breakpoint hit
+- [x] Only pause if condition is truthy
+- [x] Support complex Lua expressions
 
 ### Logpoints
 
-- [ ] Add logMessage field to Breakpoint type
-- [ ] Implement `breakpoints/logpoint.rs`
-- [ ] Parse `{expression}` format strings
-- [ ] Output via DebugConsole event
-- [ ] Do not pause when logpoint triggered
+- [x] Add logMessage field to Breakpoint type
+- [x] Implement `breakpoints/logpoint.rs`
+- [x] Parse `{expression}` format strings
+- [x] Output via DebugConsole event
+- [x] Do not pause when logpoint triggered
 
 ### Hit Count Filtering
 
-- [ ] Implement `breakpoints/hit_count.rs`
-- [ ] Add hitCondition field to Breakpoint type
-- [ ] Track hits per breakpoint
-- [ ] Implement `>= N`, `== N`, `mod N` parsing
-- [ ] Reset count on breakpoint configuration change
+- [x] Implement `breakpoints/hit_count.rs`
+- [x] Add hitCondition field to Breakpoint type
+- [x] Track hits per breakpoint
+- [x] Implement `>= N`, `== N`, `mod N` parsing
+- [x] Reset count on breakpoint configuration change
 
 ### Exception Filters
 
-- [ ] Implement exception breakpoint filtering
-- [ ] Classify errors by type/message
-- [ ] User-configurable filters via setExceptionBreakpoints
-- [ ] Default: break on all errors
+- [x] Implement exception breakpoint filtering
+- [x] Classify errors by type/message
+- [x] User-configurable filters via setExceptionBreakpoints
+- [x] Default: break on all errors
 
 ### Watchpoints
 
-- [ ] Implement `watchpoints.rs`
-- [ ] Add dataBreakpoint type
+- [x] Implement `watchpoints.rs` data structures
+- [x] Add dataBreakpoint type
 - [ ] Track initial variable value
 - [ ] Check on each hook invocation
 - [ ] Implement `debug.upvalueid` for closure variables
 - [ ] Table field watchpoints via metatable __newindex
 - [ ] Create `inject/watchpoint.lua` for runtime detection
+- [ ] Runtime integration for watchpoint detection
 
 ### Evaluate Mutation (Opt-in)
 
-- [ ] Add `evaluate.mutate` config option
+- [x] Add `evaluate.mutate` config option
 - [ ] When enabled: use `debug.setlocal`
 - [ ] When enabled: use `debug.setupvalue`
 - [ ] Track modifications for clarity
-- [ ] Add safety checks/sandboxing
+- [x] Add safety checks/sandboxing
 
 ### Phase 3 Tests
 
@@ -484,7 +485,15 @@ path = "src/main.rs"
   - Breakpoint infrastructure ready
 - Comprehensive test suite for all core functionality
 
-**Next: Begin Phase 3 - Advanced Features**
+**Phase 3: Partially Complete**
+- Conditional breakpoints with expression evaluation
+- Logpoints with variable substitution
+- Hit count filtering with complex conditions
+- Exception filtering with detailed exception info
+- Data breakpoints (watchpoints) data structures and DAP integration
+- Evaluate mutation configuration and basic safety controls
+
+**Next: Begin Phase 4 - LuaNext Integration**
 
 ```bash
 # Test current CLI

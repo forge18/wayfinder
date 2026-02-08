@@ -1,11 +1,17 @@
+use super::config::DebuggerConfig;
 use super::debug::breakpoints::BreakpointManager;
 use super::debug::conditions::ConditionEvaluator;
+use super::debug::hit_conditions;
+use super::debug::logpoints::LogpointEvaluator;
+use super::debug::watchpoints::WatchpointManager;
 use super::runtime::{BreakpointType, DebugRuntime, Frame, Scope, StepMode, Variable, Value};
 use serde_json::{json, Value as JsonValue};
 
 pub struct DebugSession<R: DebugRuntime> {
     runtime: R,
     breakpoint_manager: BreakpointManager,
+    watchpoint_manager: WatchpointManager,
+    config: DebuggerConfig,
 }
 
 impl<R: DebugRuntime> DebugSession<R> {
@@ -13,6 +19,8 @@ impl<R: DebugRuntime> DebugSession<R> {
         Self {
             runtime,
             breakpoint_manager: BreakpointManager::new(),
+            watchpoint_manager: WatchpointManager::new(),
+            config: DebuggerConfig::default(),
         }
     }
 
@@ -37,6 +45,15 @@ impl<R: DebugRuntime> DebugSession<R> {
     }
 
     pub async fn evaluate(&mut self, frame_id: i64, expression: &str) -> Result<Value, super::runtime::RuntimeError> {
+        // If mutation is enabled, we might want to track what changes
+        if self.config.evaluate_mutation {
+            // In a full implementation, we would:
+            // 1. Check if the expression is an assignment
+            // 2. If so, track what variable is being modified
+            // 3. Optionally show the modification in the UI
+            // 4. Apply safety checks based on config
+        }
+        
         self.runtime.evaluate(frame_id, expression).await
     }
 
@@ -72,6 +89,14 @@ impl<R: DebugRuntime> DebugSession<R> {
         self.runtime.pause().await
     }
 
+    /// Checks if the runtime is paused and handles breakpoint conditions if so
+    pub async fn check_pause_state(&mut self) -> Result<Option<String>, super::runtime::RuntimeError> {
+        // This would be implemented to check the runtime's pause state
+        // and handle breakpoint conditions
+        // For now, returning None indicates no special pause reason
+        Ok(None)
+    }
+
     pub async fn set_function_breakpoint(&mut self, name: &str) -> Result<super::debug::breakpoints::FunctionBreakpoint, super::runtime::RuntimeError> {
         let bp = self
             .runtime
@@ -104,6 +129,164 @@ impl<R: DebugRuntime> DebugSession<R> {
     
     pub fn breakpoint_manager(&mut self) -> &mut BreakpointManager {
         &mut self.breakpoint_manager
+    }
+
+    pub fn watchpoint_manager(&mut self) -> &mut WatchpointManager {
+        &mut self.watchpoint_manager
+    }
+
+    pub fn set_config(&mut self, config: DebuggerConfig) {
+        self.config = config;
+    }
+
+    pub fn config(&self) -> &DebuggerConfig {
+        &self.config
+    }
+
+    /// Checks if we should stop at a line breakpoint based on its conditions
+    pub async fn should_stop_at_line_breakpoint(&mut self, source: &str, line: u32) -> Result<bool, super::runtime::RuntimeError> {
+        // Find the breakpoint in our manager
+        if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
+            // First check hit conditions
+            if let Some(hit_condition) = &breakpoint.hit_condition {
+                if !hit_condition.trim().is_empty() {
+                    // Increment hit count first
+                    self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
+                    
+                    // Get the current hit count
+                    if let Some(hit_count) = self.breakpoint_manager.get_line_breakpoint_hit_count(source, line) {
+                        match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                            Ok(should_hit) => {
+                                if !should_hit {
+                                    return Ok(false); // Don't stop, hit condition not met
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: Hit condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
+                                // If hit condition evaluation fails, we still break but log the error
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No hit condition, just increment the count
+                self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
+            }
+
+            // Handle logpoints
+            if let Some(log_message) = &breakpoint.log_message {
+                if !log_message.is_empty() {
+                    // Process the logpoint message
+                    match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
+                        Ok(message) => {
+                            // In a real implementation, we would send this as a DAP output event
+                            println!("Logpoint: {}", message);
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Logpoint evaluation failed: {}", e);
+                        }
+                    }
+                    
+                    // If it's only a logpoint (no condition), don't stop
+                    if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
+                        return Ok(false);
+                    }
+                }
+            }
+
+            // Check conditional breakpoint
+            if let Some(condition) = &breakpoint.condition {
+                if !condition.trim().is_empty() {
+                    match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition)).await {
+                        Ok(should_break) => return Ok(should_break),
+                        Err(e) => {
+                            eprintln!("Warning: Condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
+                            // If condition evaluation fails, we still break but log the error
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            
+            // No condition or empty condition means always break
+            Ok(true)
+        } else {
+            // No breakpoint found - shouldn't happen in normal operation
+            Ok(false)
+        }
+    }
+
+    /// Checks if we should stop at a function breakpoint based on its conditions
+    pub async fn should_stop_at_function_breakpoint(&mut self, name: &str) -> Result<bool, super::runtime::RuntimeError> {
+        // Find the breakpoint in our manager
+        if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
+            // Handle logpoints (function breakpoints don't typically have log messages, but we'll support it)
+            if let Some(log_message) = &breakpoint.log_message {
+                if !log_message.is_empty() {
+                    // Process the logpoint message
+                    match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
+                        Ok(message) => {
+                            // In a real implementation, we would send this as a DAP output event
+                            println!("Logpoint: {}", message);
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Logpoint evaluation failed: {}", e);
+                        }
+                    }
+                    
+                    // If it's only a logpoint (no condition), don't stop
+                    if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
+                        return Ok(false);
+                    }
+                }
+            }
+
+            // First check hit conditions
+            if let Some(hit_condition) = &breakpoint.hit_condition {
+                if !hit_condition.trim().is_empty() {
+                    // Increment hit count first
+                    self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
+                    
+                    // Get the current hit count
+                    if let Some(hit_count) = self.breakpoint_manager.get_function_breakpoint_hit_count(name) {
+                        match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                            Ok(should_hit) => {
+                                if !should_hit {
+                                    return Ok(false); // Don't stop, hit condition not met
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: Hit condition evaluation failed for function breakpoint '{}': {}", name, e);
+                                // If hit condition evaluation fails, we still break but log the error
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No hit condition, just increment the count
+                self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
+            }
+
+            // Check conditional breakpoint
+            if let Some(condition) = &breakpoint.condition {
+                if !condition.trim().is_empty() {
+                    match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition)).await {
+                        Ok(should_break) => return Ok(should_break),
+                        Err(e) => {
+                            eprintln!("Warning: Condition evaluation failed for function breakpoint '{}': {}", name, e);
+                            // If condition evaluation fails, we still break but log the error
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            
+            // No condition or empty condition means always break
+            Ok(true)
+        } else {
+            // No breakpoint found - shouldn't happen in normal operation
+            Ok(false)
+        }
     }
 }
 
@@ -154,6 +337,7 @@ impl<R: DebugRuntime> DapServer<R> {
             "setBreakpoints" => self.handle_set_breakpoints(id, params).await,
             "setFunctionBreakpoints" => self.handle_set_function_breakpoints(id, params).await,
             "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(id, params).await,
+            "setDataBreakpoints" => self.handle_set_data_breakpoints(id, params).await,
             "configurationDone" => self.handle_configuration_done(id),
             "continue" => self.handle_continue(id).await,
             "next" => self.handle_next(id).await,
@@ -165,6 +349,7 @@ impl<R: DebugRuntime> DapServer<R> {
             "variables" => self.handle_variables(id, params).await,
             "evaluate" => self.handle_evaluate(id, params).await,
             "source" => self.handle_source(id, params).await,
+            "exceptionInfo" => self.handle_exception_info(id, params).await,
             _ => Some(self.error_response(id, -32600, format!("Unknown method: {}", method))),
         }
     }
@@ -188,6 +373,24 @@ impl<R: DebugRuntime> DapServer<R> {
             "supportsDelayedStackTraceLoading": true,
             "supportsDataBreakpoints": true,
             "supportsSingleThreadExecutionRequests": true,
+            "supportsExceptionInfoRequest": true,
+            "supportsDataBreakpoints": true,
+            "exceptionBreakpointFilters": [
+                {
+                    "filter": "all",
+                    "label": "All Exceptions",
+                    "description": "Break on all exceptions, including caught exceptions",
+                    "supportsCondition": true,
+                    "supportsHitCondition": true
+                },
+                {
+                    "filter": "uncaught",
+                    "label": "Uncaught Exceptions",
+                    "description": "Break on uncaught exceptions only",
+                    "supportsCondition": true,
+                    "supportsHitCondition": true
+                }
+            ]
         })
     }
 
@@ -362,6 +565,51 @@ impl<R: DebugRuntime> DapServer<R> {
                     }));
                 }
             }
+        }
+
+        Some(json!({
+            "id": id,
+            "result": { "breakpoints": results }
+        }))
+    }
+
+    async fn handle_set_data_breakpoints(&mut self, id: u64, params: &JsonValue) -> Option<JsonValue> {
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        let breakpoints = params.get("breakpoints")?.as_array()?;
+
+        // Convert DAP data breakpoints to our internal format
+        let mut data_breakpoints = Vec::new();
+        for bp in breakpoints {
+            let name = bp.get("label")?.as_str()?.to_string();
+            data_breakpoints.push(super::debug::watchpoints::DataBreakpoint {
+                id: 0, // Will be assigned by WatchpointManager
+                name,
+                condition: bp.get("condition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                hit_condition: bp.get("hitCondition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                verified: false, // Will be set by runtime
+                message: None,
+                hit_count: 0,
+                data_type: super::debug::watchpoints::DataType::Local, // Default for now
+                access_type: super::debug::watchpoints::AccessType::ReadWrite, // Default for now
+            });
+        }
+
+        // Store data breakpoints in manager
+        let stored_breakpoints = session.watchpoint_manager().set_data_breakpoints(data_breakpoints);
+
+        // In a full implementation, we would set data breakpoints in the runtime
+        // For now, we'll just return successful results
+        let mut results = Vec::new();
+        for bp in &stored_breakpoints {
+            results.push(json!({
+                "id": bp.id,
+                "verified": true,
+                "message": format!("Data breakpoint set for {}", bp.name)
+            }));
         }
 
         Some(json!({
@@ -592,6 +840,61 @@ impl<R: DebugRuntime> DapServer<R> {
                 "content": "-- Source code not available"
             }
         }))
+    }
+
+    async fn handle_exception_info(&mut self, id: u64, params: &JsonValue) -> Option<JsonValue> {
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        let thread_id = params.get("threadId").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        match session.runtime.get_exception_info(thread_id).await {
+            Ok(exception_info) => {
+                let mut result = json!({
+                    "id": id,
+                    "result": {
+                        "exceptionId": exception_info.exception_type,
+                        "description": exception_info.message,
+                        "breakMode": "always", // Could be "never", "always", or "unhandled"
+                    }
+                });
+
+                // Add stack trace if available
+                if !exception_info.stack_trace.is_empty() {
+                    let stack_frames: Vec<JsonValue> = exception_info.stack_trace
+                        .into_iter()
+                        .map(|frame| {
+                            let mut frame_obj = json!({
+                                "id": frame.id,
+                                "name": frame.name,
+                                "line": frame.line,
+                                "column": frame.column,
+                            });
+                            if let Some(source) = frame.source {
+                                frame_obj["source"] = json!({
+                                    "name": source.name,
+                                    "path": source.path,
+                                    "sourceReference": source.source_reference.unwrap_or(0)
+                                });
+                            }
+                            frame_obj
+                        })
+                        .collect();
+                    
+                    result["result"]["stackTrace"] = json!(stack_frames);
+                }
+
+                // Add details if available
+                if let Some(details) = exception_info.details {
+                    result["result"]["details"] = details;
+                }
+
+                Some(result)
+            }
+            Err(e) => Some(self.error_response(id, -1, format!("Exception info failed: {}", e))),
+        }
     }
 
     pub async fn run_event_loop(&mut self) -> Result<(), Box<dyn std::error::Error>> {

@@ -29,6 +29,9 @@ pub struct LineBreakpoint {
     pub verified: bool,
     /// Optional message about the breakpoint status
     pub message: Option<String>,
+    /// Number of times this breakpoint has been hit
+    #[serde(skip)]
+    pub hit_count: usize,
 }
 
 /// Represents a function breakpoint
@@ -44,6 +47,9 @@ pub struct FunctionBreakpoint {
     pub verified: bool,
     /// Optional message about the breakpoint status
     pub message: Option<String>,
+    /// Number of times this breakpoint has been hit
+    #[serde(skip)]
+    pub hit_count: usize,
 }
 
 /// Represents an exception breakpoint filter
@@ -98,6 +104,8 @@ impl BreakpointManager {
                 bp.id = self.next_id;
                 self.next_id += 1;
             }
+            // Initialize hit count to 0 for new breakpoints
+            bp.hit_count = 0;
             breakpoints_with_ids.push(bp);
         }
 
@@ -135,6 +143,8 @@ impl BreakpointManager {
                 bp.id = self.next_id;
                 self.next_id += 1;
             }
+            // Initialize hit count to 0 for new breakpoints
+            bp.hit_count = 0;
             breakpoints_with_ids.push(bp);
         }
 
@@ -180,6 +190,50 @@ impl BreakpointManager {
     /// Finds a function breakpoint by name
     pub fn find_function_breakpoint(&self, name: &str) -> Option<&FunctionBreakpoint> {
         self.function_breakpoints.iter().find(|bp| bp.name == name)
+    }
+
+    /// Increments the hit count for a line breakpoint
+    pub fn increment_line_breakpoint_hit_count(&mut self, source: &str, line: u32) -> bool {
+        if let Some(breakpoints) = self.line_breakpoints.get_mut(source) {
+            if let Some(bp) = breakpoints.iter_mut().find(|bp| bp.line == line) {
+                bp.hit_count += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Increments the hit count for a function breakpoint
+    pub fn increment_function_breakpoint_hit_count(&mut self, name: &str) -> bool {
+        if let Some(bp) = self
+            .function_breakpoints
+            .iter_mut()
+            .find(|bp| bp.name == name)
+        {
+            bp.hit_count += 1;
+            return true;
+        }
+        false
+    }
+
+    /// Gets the hit count for a line breakpoint
+    pub fn get_line_breakpoint_hit_count(&self, source: &str, line: u32) -> Option<usize> {
+        if let Some(breakpoints) = self.line_breakpoints.get(source) {
+            breakpoints
+                .iter()
+                .find(|bp| bp.line == line)
+                .map(|bp| bp.hit_count)
+        } else {
+            None
+        }
+    }
+
+    /// Gets the hit count for a function breakpoint
+    pub fn get_function_breakpoint_hit_count(&self, name: &str) -> Option<usize> {
+        self.function_breakpoints
+            .iter()
+            .find(|bp| bp.name == name)
+            .map(|bp| bp.hit_count)
     }
 
     /// Removes a breakpoint by ID

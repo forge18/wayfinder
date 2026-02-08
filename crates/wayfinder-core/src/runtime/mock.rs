@@ -190,4 +190,24 @@ impl super::DebugRuntime for MockRuntime {
     async fn source(&mut self, _source_reference: i64) -> Result<String, RuntimeError> {
         Ok("-- Mock source code".to_string())
     }
+
+    async fn get_exception_info(&mut self, _thread_id: u64) -> Result<super::ExceptionInfo, RuntimeError> {
+        Ok(super::ExceptionInfo {
+            exception_type: "RuntimeError".to_string(),
+            message: "An error occurred".to_string(),
+            stack_trace: vec![Frame {
+                id: 1,
+                name: "main".to_string(),
+                source: Some(super::Source {
+                    name: "main.lua".to_string(),
+                    path: "/test/main.lua".to_string(),
+                    source_reference: Some(0),
+                }),
+                line: 10,
+                column: 5,
+            }],
+            inner_exception: None,
+            details: None,
+        })
+    }
 }

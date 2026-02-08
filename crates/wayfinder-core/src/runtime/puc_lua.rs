@@ -1,4 +1,5 @@
 use super::{super::*, BreakpointType, DebugRuntime, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
+use super::super::debug::breakpoints::{LineBreakpoint, FunctionBreakpoint};
 use crate::runtime::lua_state::{Lua, DebugInfo};
 use crate::runtime::lua_ffi::*;
 use async_trait::async_trait;
@@ -70,6 +71,7 @@ extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
 pub struct PUCLuaRuntime {
     lua: Arc<Mutex<Lua>>,
     breakpoints: Arc<Mutex<HashMap<String, Vec<u32>>>>,
+    detailed_breakpoints: Arc<Mutex<HashMap<String, Vec<LineBreakpoint>>>>,
     step_mode: Arc<Mutex<StepMode>>,
 }
 
@@ -84,6 +86,7 @@ impl PUCLuaRuntime {
         Self {
             lua: Arc::new(Mutex::new(Lua::new())),
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
+            detailed_breakpoints: Arc::new(Mutex::new(HashMap::new())),
             step_mode: Arc::new(Mutex::new(StepMode::Over)),
         }
     }
@@ -642,22 +645,19 @@ impl DebugRuntime for PUCLuaRuntime {
         Ok(variables)
     }
 
-    async fn evaluate(&mut self, _frame_id: i64, expression: &str) -> Result<Value, RuntimeError> {
+    async fn evaluate(&mut self, frame_id: i64, expression: &str) -> Result<Value, RuntimeError> {
         let trimmed = expression.trim();
 
         if trimmed.is_empty() {
             return Ok(Value::Nil);
         }
 
-        // Check if we're in read-only mode (simple heuristic for now)
+        // Check if this is an assignment operation
         let is_assignment = trimmed.contains('=') && !trimmed.contains("==") && !trimmed.contains("!=");
         let is_dangerous_function = trimmed.contains("load") || trimmed.contains("dofile") || trimmed.contains("require");
 
-        // For now, we'll allow most evaluations but warn about potentially dangerous operations
+        // Warn about potentially dangerous operations
         if is_assignment {
-            // This is a simplified approach - in a real implementation we'd want
-            // to check if the assignment is to a local variable or global
-            // For now, we'll allow it but log that it's happening
             println!("Warning: Assignment detected in expression evaluation: {}", trimmed);
         }
         
@@ -665,7 +665,7 @@ impl DebugRuntime for PUCLuaRuntime {
             println!("Warning: Potentially dangerous function call detected: {}", trimmed);
         }
 
-        // Use safer evaluation method
+        // Execute the expression
         let mut lua = self.lua.lock().unwrap();
         if let Ok(_) = lua.execute(trimmed) {
             // Convert the result on top of stack to our Value type
@@ -673,6 +673,7 @@ impl DebugRuntime for PUCLuaRuntime {
             return Ok(result);
         }
 
+        // Handle literal values
         match trimmed {
             "nil" => Ok(Value::Nil),
             "true" => Ok(Value::Boolean(true)),
