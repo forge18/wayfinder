@@ -92,11 +92,11 @@ src/
 
 ### Breakpoints
 
-- [ ] Implement `breakpoints.rs` with LineBreakpoint type
-- [ ] Implement `setBreakpoints` request handler
-- [ ] Implement `setFunctionBreakpoints` request handler
-- [ ] Implement `setExceptionBreakpoints` request handler
-- [ ] Hook into debug library for breakpoint triggering
+- [x] Implement `breakpoints.rs` with LineBreakpoint type
+- [x] Implement `setBreakpoints` request handler
+- [x] Implement `setFunctionBreakpoints` request handler
+- [x] Implement `setExceptionBreakpoints` request handler
+- [x] Hook into debug library for breakpoint triggering
 
 ### Stepping
 

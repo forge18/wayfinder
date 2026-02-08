@@ -1,13 +1,18 @@
+use super::debug::breakpoints::BreakpointManager;
 use super::runtime::{BreakpointType, DebugRuntime, Frame, Scope, StepMode, Variable, Value};
 use serde_json::{json, Value as JsonValue};
 
 pub struct DebugSession<R: DebugRuntime> {
     runtime: R,
+    breakpoint_manager: BreakpointManager,
 }
 
 impl<R: DebugRuntime> DebugSession<R> {
     pub fn new(runtime: R) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            breakpoint_manager: BreakpointManager::new(),
+        }
     }
 
     pub async fn run(&mut self) -> Result<(), super::runtime::RuntimeError> {
@@ -34,15 +39,28 @@ impl<R: DebugRuntime> DebugSession<R> {
         self.runtime.evaluate(frame_id, expression).await
     }
 
-    pub async fn set_breakpoint(&mut self, source: &str, line: u32) -> Result<(), super::runtime::RuntimeError> {
-        let _bp = self
+    pub async fn set_breakpoint(&mut self, source: &str, line: u32) -> Result<super::debug::breakpoints::LineBreakpoint, super::runtime::RuntimeError> {
+        let bp = self
             .runtime
             .set_breakpoint(BreakpointType::Line {
                 source: source.to_string(),
                 line,
             })
             .await?;
-        Ok(())
+        
+        // Create and store the breakpoint in our manager
+        let line_bp = super::debug::breakpoints::LineBreakpoint {
+            id: bp.id,
+            source: source.to_string(),
+            line,
+            condition: None,
+            log_message: None,
+            hit_condition: None,
+            verified: bp.verified,
+            message: bp.message,
+        };
+        
+        Ok(line_bp)
     }
 
     pub async fn remove_breakpoint(&mut self, id: i64) -> Result<(), super::runtime::RuntimeError> {
@@ -53,14 +71,24 @@ impl<R: DebugRuntime> DebugSession<R> {
         self.runtime.pause().await
     }
 
-    pub async fn set_function_breakpoint(&mut self, name: &str) -> Result<(), super::runtime::RuntimeError> {
-        let _bp = self
+    pub async fn set_function_breakpoint(&mut self, name: &str) -> Result<super::debug::breakpoints::FunctionBreakpoint, super::runtime::RuntimeError> {
+        let bp = self
             .runtime
             .set_breakpoint(BreakpointType::Function {
                 name: name.to_string(),
             })
             .await?;
-        Ok(())
+        
+        // Create and store the breakpoint in our manager
+        let func_bp = super::debug::breakpoints::FunctionBreakpoint {
+            id: bp.id,
+            name: name.to_string(),
+            condition: None,
+            verified: bp.verified,
+            message: bp.message,
+        };
+        
+        Ok(func_bp)
     }
 
     pub async fn set_exception_breakpoint(&mut self, filter: &str) -> Result<(), super::runtime::RuntimeError> {
@@ -71,6 +99,10 @@ impl<R: DebugRuntime> DebugSession<R> {
             })
             .await?;
         Ok(())
+    }
+    
+    pub fn breakpoint_manager(&mut self) -> &mut BreakpointManager {
+        &mut self.breakpoint_manager
     }
 }
 
@@ -164,15 +196,46 @@ impl<R: DebugRuntime> DapServer<R> {
         let source = params.get("source")?.get("path")?.as_str()?;
         let breakpoints = params.get("breakpoints")?.as_array()?;
 
-        let mut results = Vec::new();
-
+        // Convert DAP breakpoints to our internal format
+        let mut line_breakpoints = Vec::new();
         for bp in breakpoints {
             let line = bp.get("line")?.as_u64()? as u32;
-            let _ = session.set_breakpoint(source, line).await.ok();
-            results.push(json!({
-                "verified": true,
-                "line": line
-            }));
+            line_breakpoints.push(super::debug::breakpoints::LineBreakpoint {
+                id: 0, // Will be assigned by BreakpointManager
+                source: source.to_string(),
+                line,
+                condition: bp.get("condition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                log_message: bp.get("logMessage").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                hit_condition: bp.get("hitCondition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                verified: false, // Will be set by runtime
+                message: None,
+            });
+        }
+
+        // Store breakpoints in manager
+        let stored_breakpoints = session.breakpoint_manager().set_line_breakpoints(source.to_string(), line_breakpoints);
+
+        // Set breakpoints in runtime
+        let mut results = Vec::new();
+        for bp in &stored_breakpoints {
+            match session.set_breakpoint(&bp.source, bp.line).await {
+                Ok(runtime_bp) => {
+                    results.push(json!({
+                        "id": runtime_bp.id,
+                        "verified": runtime_bp.verified,
+                        "line": runtime_bp.line,
+                        "message": runtime_bp.message
+                    }));
+                }
+                Err(_) => {
+                    results.push(json!({
+                        "id": bp.id,
+                        "verified": false,
+                        "line": bp.line,
+                        "message": "Failed to set breakpoint"
+                    }));
+                }
+            }
         }
 
         Some(json!({
@@ -188,15 +251,42 @@ impl<R: DebugRuntime> DapServer<R> {
         };
 
         let breakpoints = params.get("breakpoints")?.as_array()?;
-        let mut results = Vec::new();
 
+        // Convert DAP breakpoints to our internal format
+        let mut func_breakpoints = Vec::new();
         for bp in breakpoints {
             let name = bp.get("name")?.as_str()?;
-            let _ = session.set_function_breakpoint(name).await.ok();
-            results.push(json!({
-                "verified": true,
-                "message": format!("Function breakpoint: {}", name)
-            }));
+            func_breakpoints.push(super::debug::breakpoints::FunctionBreakpoint {
+                id: 0, // Will be assigned by BreakpointManager
+                name: name.to_string(),
+                condition: bp.get("condition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                verified: false, // Will be set by runtime
+                message: None,
+            });
+        }
+
+        // Store breakpoints in manager
+        let stored_breakpoints = session.breakpoint_manager().set_function_breakpoints(func_breakpoints);
+
+        // Set breakpoints in runtime
+        let mut results = Vec::new();
+        for bp in &stored_breakpoints {
+            match session.set_function_breakpoint(&bp.name).await {
+                Ok(runtime_bp) => {
+                    results.push(json!({
+                        "id": runtime_bp.id,
+                        "verified": runtime_bp.verified,
+                        "message": runtime_bp.message
+                    }));
+                }
+                Err(_) => {
+                    results.push(json!({
+                        "id": bp.id,
+                        "verified": false,
+                        "message": format!("Failed to set function breakpoint: {}", bp.name)
+                    }));
+                }
+            }
         }
 
         Some(json!({
@@ -212,15 +302,31 @@ impl<R: DebugRuntime> DapServer<R> {
         };
 
         let filters = params.get("filters")?.as_array()?;
-        let mut results = Vec::new();
+        let filter_strings: Vec<String> = filters.iter()
+            .filter_map(|f| f.as_str())
+            .map(|s| s.to_string())
+            .collect();
 
-        for filter in filters {
-            let filter_str = filter.as_str()?;
-            let _ = session.set_exception_breakpoint(filter_str).await.ok();
-            results.push(json!({
-                "verified": true,
-                "message": format!("Exception breakpoint: {}", filter_str)
-            }));
+        // Store exception filters in manager
+        session.breakpoint_manager().set_exception_breakpoints(filter_strings.clone());
+
+        // Set exception breakpoints in runtime
+        let mut results = Vec::new();
+        for filter_str in &filter_strings {
+            match session.set_exception_breakpoint(filter_str).await {
+                Ok(()) => {
+                    results.push(json!({
+                        "verified": true,
+                        "message": format!("Exception breakpoint: {}", filter_str)
+                    }));
+                }
+                Err(_) => {
+                    results.push(json!({
+                        "verified": false,
+                        "message": format!("Failed to set exception breakpoint: {}", filter_str)
+                    }));
+                }
+            }
         }
 
         Some(json!({

@@ -5,6 +5,7 @@ pub mod session;
 pub mod sourcemap;
 
 pub use dap::{Event, Message, ProtocolMessage, Response};
+pub use debug::breakpoints::{BreakpointManager, LineBreakpoint, FunctionBreakpoint};
 pub use runtime::{
     Breakpoint, BreakpointType, Frame, RuntimeError, RuntimeType, RuntimeVersion, Scope, Source,
     StepMode, Variable, VariableScope, Value,
