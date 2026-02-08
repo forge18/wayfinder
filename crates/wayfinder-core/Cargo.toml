@@ -9,3 +9,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
+luanext-sourcemap = { path = "../luanext/crates/luanext-sourcemap" }
+libc = "0.2"

@@ -1,0 +1,6 @@
+[submodule "crates/luanext-sourcemap"]
+	path = crates/luanext-sourcemap
+	url = https://github.com/forge18/luanext-sourcemap.git
+[submodule "crates/luanext"]
+	path = crates/luanext
+	url = https://github.com/forge18/luanext.git

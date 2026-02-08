@@ -2,6 +2,7 @@ pub mod dap;
 pub mod debug;
 pub mod runtime;
 pub mod session;
+pub mod sourcemap;
 
 pub use dap::{Event, Message, ProtocolMessage, Response};
 pub use runtime::{
@@ -9,3 +10,4 @@ pub use runtime::{
     StepMode, Variable, VariableScope, Value,
 };
 pub use session::{DapServer, DebugSession};
+pub use sourcemap::{SourceMapTranslator, SourcePosition, TranslatedSource};

@@ -1,8 +1,0 @@
-[package]
-name = "wayfinder-luax"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-wayfinder-core = { path = "../wayfinder-core" }
-luanext-sourcemap = { path = "../luanext/luanext-sourcemap" }

@@ -75,6 +75,8 @@ src/
 ### PUC Lua Integration
 
 - [x] Implement `runtime/puc_lua.rs` (stub with FFI structure)
+- [x] Implement `runtime/lua_ffi.rs` with full Lua C API bindings
+- [x] Implement `runtime/lua_state.rs` with safe Rust wrapper
 - [ ] Implement hook installation with `debug.sethook`
 - [ ] Implement `set_breakpoint` using hook callbacks
 - [ ] Implement `step` operations (over, in, out)
@@ -87,7 +89,6 @@ src/
 
 - [ ] Implement `runtime/luanext.rs` (initially same as PUC Lua)
 - [ ] Use `debug.sethook` compatibility layer
-- [ ] Add placeholder for future native JIT hooks
 
 ### Breakpoints
 
@@ -403,9 +404,16 @@ crates/
 │       │   └── transport.rs        (JSON-RPC stdio transport)
 │       ├── runtime/
 │       │   ├── mod.rs              (DebugRuntime trait, types)
-│       │   └── mock.rs             (MockRuntime for testing)
+│       │   ├── lua_ffi.rs          (Lua C API FFI bindings)
+│       │   ├── lua_state.rs        (Safe Rust wrapper for Lua state)
+│       │   ├── mock.rs             (MockRuntime for testing)
+│       │   └── puc_lua.rs         (PUCLuaRuntime with FFI)
 │       └── session/
 │           └── mod.rs              (DebugSession, DapServer)
+├── wayfinder-luax/
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs                  (Source map translator for LuaNext)
 └── wayfinder-cli/
     └── src/
         └── lib.rs                  (CLI with clap, config loading)
@@ -427,6 +435,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 async-trait = "0.1"
+libc = "0.2"
+luanext-sourcemap = { path = "../luanext/crates/luanext-sourcemap" }
 
 # wayfinder-cli/Cargo.toml
 [dependencies]
@@ -441,6 +451,10 @@ home = "0.5"
 name = "wayfinder"
 path = "src/main.rs"
 ```
+
+**Submodules:**
+- `crates/luanext/` - Git submodule: https://github.com/forge18/luanext.git
+  - Contains: luanext-core, luanext-parser, luanext-typechecker, luanext-sourcemap
 
 ---
 
@@ -458,11 +472,19 @@ path = "src/main.rs"
 - Mock runtime for testing
 - Debug session and DAP server scaffolding
 - Transport layer for JSON-RPC over stdio
+- Lua FFI bindings (`lua_ffi.rs`) with full Lua 5.4 C API
+- Lua state wrapper (`lua_state.rs`) with safe Rust bindings
+- PUCLuaRuntime with FFI integration infrastructure
 
-**Next: Implement PUC Lua runtime integration**
+**Next: Complete PUC Lua runtime integration**
 
 ```bash
 # Test current CLI
 cargo run -- --help
 cargo run -- launch script.lua
 ```
+
+**LuaNext Integration**
+- `luanext` git submodule added
+- `luanext-sourcemap` available via submodule
+- Source map translator infrastructure ready
