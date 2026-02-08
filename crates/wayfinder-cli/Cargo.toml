@@ -1,0 +1,14 @@
+[package]
+name = "wayfinder-cli"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+
+[dependencies]
+wayfinder-core = { path = "../wayfinder-core" }
+clap.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+home = "0.5"

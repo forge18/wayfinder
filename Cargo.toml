@@ -1,0 +1,28 @@
+[package]
+name = "wayfinder"
+version = "0.1.0"
+edition = "2021"
+description = "Debug Adapter Protocol implementation for Lua and LuaNext"
+authors = ["Wayfinder Contributors"]
+
+[workspace]
+members = [
+    "crates/wayfinder-core",
+    "crates/wayfinder-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+serde_yaml = "0.9"
+async-trait = "0.1"
+
+[dependencies]
+wayfinder-cli = { path = "crates/wayfinder-cli" }
