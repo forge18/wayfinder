@@ -100,7 +100,9 @@ impl HotReload {
                     "Unknown compilation error".to_string()
                 };
 
-                lua_pop(self.lua.state(), 1); // Remove error message
+                unsafe {
+                    lua_pop(self.lua.state(), 1); // Remove error message
+                }
                 return Err(HotReloadError::CompilationError(error_msg));
             }
         }
@@ -127,13 +129,15 @@ impl HotReload {
                     "Unknown execution error".to_string()
                 };
 
-                lua_pop(self.lua.state(), 1); // Remove error message
+                unsafe {
+                    lua_pop(self.lua.state(), 1); // Remove error message
+                }
                 return Err(HotReloadError::CompilationError(error_msg));
             }
 
             // The result should be on top of the stack
             // Create a reference to it
-            let module_ref = luaL_ref(self.lua.state(), LUA_REGISTRYINDEX);
+            let module_ref = unsafe { luaL_ref(self.lua.state(), LUA_REGISTRYINDEX) };
             Ok(module_ref as i64)
         }
     }
@@ -277,7 +281,9 @@ impl HotReload {
             lua_rawseti(self.lua.state(), LUA_REGISTRYINDEX, old_ref);
 
             // Remove the temporary values from stack
-            lua_pop(self.lua.state(), 2);
+            unsafe {
+                lua_pop(self.lua.state(), 2);
+            }
         }
 
         Ok(())
@@ -396,5 +402,49 @@ mod tests {
 
         let invalid_module = "return { test = "; // Invalid syntax
         assert!(hot_reload.compile_module(invalid_module).is_err());
+    }
+
+    #[test]
+    fn test_state_capture_creation() {
+        let lua = Lua::new();
+        let state_capture = StateCapture::new(lua.state());
+        assert!(state_capture.visited_tables.is_empty());
+    }
+
+    #[test]
+    fn test_captured_value_enum() {
+        let nil_value = CapturedValue::Nil;
+        let bool_value = CapturedValue::Boolean(true);
+        let num_value = CapturedValue::Number(42.0);
+        let str_value = CapturedValue::String("test".to_string());
+
+        assert!(matches!(nil_value, CapturedValue::Nil));
+        assert!(matches!(bool_value, CapturedValue::Boolean(true)));
+        assert!(matches!(num_value, CapturedValue::Number(42.0)));
+        assert!(matches!(str_value, CapturedValue::String(_)));
+    }
+
+    #[test]
+    fn test_captured_global_struct() {
+        let global = CapturedGlobal {
+            name: "test_var".to_string(),
+            value: CapturedValue::Number(123.0),
+        };
+
+        assert_eq!(global.name, "test_var");
+        assert!(matches!(global.value, CapturedValue::Number(123.0)));
+    }
+
+    #[test]
+    fn test_capture_and_restore_workflow() {
+        let lua = Lua::new();
+        let mut hot_reload = HotReload::new(lua);
+
+        // Test that we can capture state (even if it's empty initially)
+        let captured_globals = hot_reload.state_capture.capture_globals();
+        assert!(captured_globals.is_empty());
+
+        // Test that we can restore state (even if it's empty)
+        assert!(hot_reload.restore_globals(captured_globals).is_ok());
     }
 }

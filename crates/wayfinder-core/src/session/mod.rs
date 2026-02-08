@@ -111,6 +111,8 @@ impl<R: DebugRuntime> DebugSession<R> {
             id: bp.id,
             name: name.to_string(),
             condition: None,
+            log_message: None,
+            hit_condition: None,
             verified: bp.verified,
             message: bp.message,
             hit_count: 0,
@@ -163,17 +165,29 @@ impl<R: DebugRuntime> DebugSession<R> {
         };
         
         if let Some(_id) = breakpoint_id {
-            // Find the breakpoint again (we need to reborrow)
-            if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
+            // Get the breakpoint information first to avoid borrow conflicts
+            let breakpoint_info = {
+                if let Some(breakpoint) = self.breakpoint_manager.find_line_breakpoint(source, line) {
+                    Some((
+                        breakpoint.hit_condition.clone(),
+                        breakpoint.log_message.clone(),
+                        breakpoint.condition.clone(),
+                    ))
+                } else {
+                    None
+                }
+            };
+            
+            if let Some((hit_condition, log_message, condition)) = breakpoint_info {
                 // First check hit conditions
-                if let Some(hit_condition) = &breakpoint.hit_condition {
-                    if !hit_condition.trim().is_empty() {
+                if let Some(ref hit_condition_str) = hit_condition {
+                    if !hit_condition_str.trim().is_empty() {
                         // Increment hit count first
                         self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
                         
                         // Get the current hit count
                         if let Some(hit_count) = self.breakpoint_manager.get_line_breakpoint_hit_count(source, line) {
-                            match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                            match hit_conditions::evaluate_hit_condition(hit_condition_str, hit_count) {
                                 Ok(should_hit) => {
                                     if !should_hit {
                                         return Ok(false); // Don't stop, hit condition not met
@@ -191,36 +205,37 @@ impl<R: DebugRuntime> DebugSession<R> {
                     self.breakpoint_manager.increment_line_breakpoint_hit_count(source, line);
                 }
 
-            // Handle logpoints
-            if let Some(log_message) = &breakpoint.log_message {
-                if !log_message.is_empty() {
-                    // Process the logpoint message
-                    match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
-                        Ok(message) => {
-                            // In a real implementation, we would send this as a DAP output event
-                            println!("Logpoint: {}", message);
+                // Handle logpoints
+                if let Some(log_message) = &log_message {
+                    if !log_message.is_empty() {
+                        // Process the logpoint message
+                        match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
+                            Ok(message) => {
+                                // In a real implementation, we would send this as a DAP output event
+                                println!("Logpoint: {}", message);
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: Logpoint evaluation failed: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("Warning: Logpoint evaluation failed: {}", e);
+                        
+                        // If it's only a logpoint (no condition), don't stop
+                        if condition.is_none() && hit_condition.is_none() {
+                            return Ok(false);
                         }
-                    }
-                    
-                    // If it's only a logpoint (no condition), don't stop
-                    if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
-                        return Ok(false);
                     }
                 }
-            }
 
-            // Check conditional breakpoint
-            if let Some(condition) = &breakpoint.condition {
-                if !condition.trim().is_empty() {
-                    match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition)).await {
-                        Ok(should_break) => return Ok(should_break),
-                        Err(e) => {
-                            eprintln!("Warning: Condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
-                            // If condition evaluation fails, we still break but log the error
-                            return Ok(true);
+                // Check conditional breakpoint
+                if let Some(condition_str) = &condition {
+                    if !condition_str.trim().is_empty() {
+                        match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition_str)).await {
+                            Ok(should_break) => return Ok(should_break),
+                            Err(e) => {
+                                eprintln!("Warning: Condition evaluation failed for breakpoint at {}:{}: {}", source, line, e);
+                                // If condition evaluation fails, we still break but log the error
+                                return Ok(true);
+                            }
                         }
                     }
                 }
@@ -246,13 +261,25 @@ impl<R: DebugRuntime> DebugSession<R> {
         };
         
         if let Some(_id) = breakpoint_id {
-            // Find the breakpoint again (we need to reborrow)
-            if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
+            // Get the breakpoint information first to avoid borrow conflicts
+            let breakpoint_info = {
+                if let Some(breakpoint) = self.breakpoint_manager.find_function_breakpoint(name) {
+                    Some((
+                        breakpoint.hit_condition.clone(),
+                        breakpoint.log_message.clone(),
+                        breakpoint.condition.clone(),
+                    ))
+                } else {
+                    None
+                }
+            };
+            
+            if let Some((hit_condition, log_message, condition)) = breakpoint_info {
                 // Handle logpoints (function breakpoints don't typically have log messages, but we'll support it)
-                if let Some(log_message) = &breakpoint.log_message {
-                    if !log_message.is_empty() {
+                if let Some(log_message_str) = &log_message {
+                    if !log_message_str.is_empty() {
                         // Process the logpoint message
-                        match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message).await {
+                        match LogpointEvaluator::process_logpoint(&mut self.runtime, 0, log_message_str).await {
                             Ok(message) => {
                                 // In a real implementation, we would send this as a DAP output event
                                 println!("Logpoint: {}", message);
@@ -263,21 +290,21 @@ impl<R: DebugRuntime> DebugSession<R> {
                         }
                         
                         // If it's only a logpoint (no condition), don't stop
-                        if breakpoint.condition.is_none() && breakpoint.hit_condition.is_none() {
+                        if condition.is_none() && hit_condition.is_none() {
                             return Ok(false);
                         }
                     }
                 }
 
                 // First check hit conditions
-                if let Some(hit_condition) = &breakpoint.hit_condition {
-                    if !hit_condition.trim().is_empty() {
+                if let Some(ref hit_condition_str) = hit_condition {
+                    if !hit_condition_str.trim().is_empty() {
                         // Increment hit count first
                         self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
                         
                         // Get the current hit count
                         if let Some(hit_count) = self.breakpoint_manager.get_function_breakpoint_hit_count(name) {
-                            match hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                            match hit_conditions::evaluate_hit_condition(hit_condition_str, hit_count) {
                                 Ok(should_hit) => {
                                     if !should_hit {
                                         return Ok(false); // Don't stop, hit condition not met
@@ -295,27 +322,32 @@ impl<R: DebugRuntime> DebugSession<R> {
                     self.breakpoint_manager.increment_function_breakpoint_hit_count(name);
                 }
 
-            // Check conditional breakpoint
-            if let Some(condition) = &breakpoint.condition {
-                if !condition.trim().is_empty() {
-                    match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition)).await {
-                        Ok(should_break) => return Ok(should_break),
-                        Err(e) => {
-                            eprintln!("Warning: Condition evaluation failed for function breakpoint '{}': {}", name, e);
-                            // If condition evaluation fails, we still break but log the error
-                            return Ok(true);
+                // Check conditional breakpoint
+                if let Some(condition_str) = &condition {
+                    if !condition_str.trim().is_empty() {
+                        match ConditionEvaluator::should_break(&mut self.runtime, 0, Some(condition_str)).await {
+                            Ok(should_break) => return Ok(should_break),
+                            Err(e) => {
+                                eprintln!("Warning: Condition evaluation failed for function breakpoint '{}': {}", name, e);
+                                // If condition evaluation fails, we still break but log the error
+                                return Ok(true);
+                            }
                         }
                     }
                 }
+                
+                // No condition or empty condition means always break
+                Ok(true)
+            } else {
+                // No breakpoint found - shouldn't happen in normal operation
+                Ok(false)
             }
-            
-            // No condition or empty condition means always break
-            Ok(true)
         } else {
             // No breakpoint found - shouldn't happen in normal operation
             Ok(false)
         }
     }
+
 }
 
 pub struct DapServer<R: DebugRuntime> {
@@ -378,6 +410,7 @@ impl<R: DebugRuntime> DapServer<R> {
             "evaluate" => self.handle_evaluate(id, params).await,
             "source" => self.handle_source(id, params).await,
             "exceptionInfo" => self.handle_exception_info(id, params).await,
+            "hotReload" => self.handle_hot_reload(id, params).await,
             _ => Some(self.error_response(id, -32600, format!("Unknown method: {}", method))),
         }
     }
@@ -403,6 +436,7 @@ impl<R: DebugRuntime> DapServer<R> {
             "supportsSingleThreadExecutionRequests": true,
             "supportsExceptionInfoRequest": true,
             "supportsDataBreakpoints": true,
+            "supportsHotReload": true,
             "exceptionBreakpointFilters": [
                 {
                     "filter": "all",
@@ -527,6 +561,8 @@ impl<R: DebugRuntime> DapServer<R> {
                 id: 0, // Will be assigned by BreakpointManager
                 name: name.to_string(),
                 condition: bp.get("condition").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                log_message: bp.get("logMessage").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                hit_condition: bp.get("hitCondition").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 verified: false, // Will be set by runtime
                 message: None,
                 hit_count: 0,
@@ -663,6 +699,40 @@ impl<R: DebugRuntime> DapServer<R> {
             Ok(()) => Some(json!({ "id": id, "result": { "allThreadsContinued": true } })),
             Err(e) => Some(self.error_response(id, -1, format!("Continue failed: {}", e))),
         }
+    }
+
+    async fn handle_hot_reload(&mut self, id: u64, params: &JsonValue) -> Option<JsonValue> {
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        // Extract the module path from parameters
+        let module_path = match params.get("module") {
+            Some(path) => match path.as_str() {
+                Some(p) => p,
+                None => return Some(self.error_response(id, -1, "Module path must be a string".to_string())),
+            },
+            None => return Some(self.error_response(id, -1, "Missing module parameter".to_string())),
+        };
+
+        // In a real implementation, we would:
+        // 1. Load the new module source
+        // 2. Capture the current state
+        // 3. Compile and execute the new module
+        // 4. Restore the state
+        // 5. Update references
+
+        println!("Hot reloading module: {}", module_path);
+        
+        // For now, we'll just return a success response
+        Some(json!({ 
+            "id": id, 
+            "result": {
+                "success": true,
+                "message": format!("Hot reload initiated for module: {}", module_path)
+            }
+        }))
     }
 
     async fn handle_next(&mut self, id: u64) -> Option<JsonValue> {

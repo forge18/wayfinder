@@ -183,6 +183,9 @@ pub trait DebugRuntime: Send + Sync {
 
     async fn source(&mut self, source_reference: i64) -> Result<String>;
 
+    /// Check if any data breakpoints (watchpoints) have been triggered
+    async fn check_data_breakpoints(&mut self, frame_id: i64) -> Result<bool>;
+
     /// Gets detailed information about the current exception
     async fn get_exception_info(&mut self, thread_id: u64) -> Result<ExceptionInfo>;
 }

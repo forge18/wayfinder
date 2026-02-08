@@ -1,4 +1,4 @@
-use super::{super::*, BreakpointType, DebugRuntime, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
+use super::{super::*, BreakpointType, DebugRuntime, ExceptionInfo, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
 use super::super::config::DebuggerConfig;
 use super::super::debug::breakpoints::{LineBreakpoint, FunctionBreakpoint};
 use super::super::debug::watchpoints::{DataBreakpoint, WatchpointManager, DataType, AccessType};
@@ -73,11 +73,8 @@ extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
                     if depth <= STEP_DEPTH.load(Ordering::SeqCst) {
                         true
                     } else {
-                        false
-                    }
-                }
-                StepMode::Out => {
-                    false
+        false
+    }
                 }
             }
         } else {
@@ -432,7 +429,7 @@ impl DebugRuntime for PUCLuaRuntime {
         let mut frames = Vec::new();
 
         for level in 0..10 {
-            let lua = self.lua.lock().unwrap();
+        let mut lua = self.lua.lock().unwrap();
 
             unsafe {
                 let mut ar = DebugInfo::new();
@@ -763,6 +760,11 @@ impl DebugRuntime for PUCLuaRuntime {
     async fn get_exception_info(&mut self, _thread_id: u64) -> Result<ExceptionInfo, RuntimeError> {
         Err(RuntimeError::NotImplemented("get_exception_info not implemented".to_string()))
     }
+
+    async fn check_data_breakpoints(&mut self, frame_id: i64) -> Result<bool, RuntimeError> {
+        // Call the internal check_watchpoints method
+        Ok(self.check_watchpoints(frame_id))
+    }
 }
 
 impl PUCLuaRuntime {
@@ -786,15 +788,45 @@ impl PUCLuaRuntime {
 
     /// Check if any watchpoints have been triggered
     fn check_watchpoints(&self, frame_id: i64) -> bool {
-        let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+        // Get the list of watchpoint IDs and their data types first
+        let watchpoint_info: Vec<(i64, DataType)> = {
+            let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+            watchpoint_manager.get_data_breakpoints()
+                .iter()
+                .map(|wp| (wp.id, wp.data_type.clone()))
+                .collect()
+        };
         
-        // Iterate through all active data breakpoints
-        for (_, watchpoint) in &watchpoint_manager.data_breakpoints {
+        // Check each watchpoint
+        for (id, data_type) in watchpoint_info {
             // Get the current value based on the data type
-            let current_value = match &watchpoint.data_type {
-                DataType::Local => self.get_local_variable_value(frame_id, &watchpoint.name),
-                DataType::Global => self.get_global_variable_value(&watchpoint.name),
-                DataType::Upvalue => self.get_upvalue_value(&watchpoint.name),
+            let current_value = match &data_type {
+                DataType::Local => {
+                    // We need the name for local variables, but we don't have it here
+                    // Let's get it from the watchpoint manager
+                    let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+                    if let Some(wp) = watchpoint_manager.find_data_breakpoint(id) {
+                        self.get_local_variable_value(frame_id, &wp.name)
+                    } else {
+                        None
+                    }
+                },
+                DataType::Global => {
+                    let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+                    if let Some(wp) = watchpoint_manager.find_data_breakpoint(id) {
+                        self.get_global_variable_value(&wp.name)
+                    } else {
+                        None
+                    }
+                },
+                DataType::Upvalue => {
+                    let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+                    if let Some(wp) = watchpoint_manager.find_data_breakpoint(id) {
+                        self.get_upvalue_value(&wp.name)
+                    } else {
+                        None
+                    }
+                },
                 DataType::UpvalueId { function_index, upvalue_index, upvalue_id: _ } => {
                     self.get_upvalue_id_value(*function_index, *upvalue_index)
                 },
@@ -802,6 +834,28 @@ impl PUCLuaRuntime {
                     self.get_table_field_value(*table_ref, field)
                 }
             };
+            
+            // If we got a current value, check if it has changed
+            if let Some(value) = current_value {
+                // Check if the value has changed
+                let has_changed = {
+                    let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+                    watchpoint_manager.has_data_breakpoint_value_changed(id, &value)
+                };
+                
+                if has_changed {
+                    // Value has changed, update the previous value
+                    let mut watchpoint_manager = self.watchpoint_manager.write().unwrap();
+                    watchpoint_manager.update_data_breakpoint_previous_value(id, value.clone());
+                    
+                    // Check access type - for now we'll assume we're monitoring writes
+                    return true; // Trigger the watchpoint
+                }
+            }
+        }
+        
+        false
+    }
             
             // If we got a current value, check if it has changed
             if let Some(value) = current_value {
@@ -879,7 +933,7 @@ impl PUCLuaRuntime {
 
     /// Gets the current value of a local variable
     fn get_local_variable_value(&self, frame_id: i64, variable_name: &str) -> Option<String> {
-        let lua = self.lua.lock().unwrap();
+        let mut lua = self.lua.lock().unwrap();
         
         // Create debug info structure for the specified frame
         let mut ar = std::mem::zeroed::<lua_Debug>();
@@ -888,7 +942,7 @@ impl PUCLuaRuntime {
             let mut index = 1i32;
             loop {
                 // Get local variable name
-                let name_opt = lua.get_local(&ar, index);
+                let name_opt = lua.get_local(&mut ar, index);
                 
                 match name_opt {
                     Some(name) => {
@@ -955,7 +1009,7 @@ impl PUCLuaRuntime {
 
     /// Gets the current value of an upvalue
     fn get_upvalue_value(&self, variable_name: &str) -> Option<String> {
-        let lua = self.lua.lock().unwrap();
+        let mut lua = self.lua.lock().unwrap();
         
         // Try to get the current function (assuming it's at the top of stack)
         let func_index = -1;
@@ -1027,7 +1081,7 @@ impl PUCLuaRuntime {
 
     /// Gets the current value of an upvalue identified by its ID
     fn get_upvalue_id_value(&self, function_index: i32, upvalue_index: i32) -> Option<String> {
-        let lua = self.lua.lock().unwrap();
+        let mut lua = self.lua.lock().unwrap();
         
         // Get the upvalue ID to verify it's the same upvalue
         let upvalue_id = lua.upvalue_id(function_index, upvalue_index) as usize;
@@ -1110,10 +1164,11 @@ impl PUCLuaRuntime {
         
         // Push the field name
         let field_cstr = std::ffi::CString::new(field).ok()?;
-        lua_pushstring(lua.state(), field_cstr.as_ptr());
-        
-        // Get the table field value
-        if lua_gettable(lua.state(), -2) == 0 { // -2 would be the table index
+        unsafe {
+            lua_pushstring(lua.state(), field_cstr.as_ptr());
+            
+            // Get the table field value
+            if lua_gettable(lua.state(), -2) == 0 { // -2 would be the table index
             // Got the field value, convert to string representation
             let value_type = lua.type_of(-1);
             let value_str = match value_type {
@@ -1161,6 +1216,7 @@ impl PUCLuaRuntime {
             lua.set_top(-2);
             None
         }
+        } // End of unsafe block
     }
 
     /// Gets the current value of a global variable
@@ -1270,7 +1326,7 @@ impl PUCLuaRuntime {
                             if name == variable_name {
                                 // Found the variable, set its value
                                 // The value is already on top of the stack from our earlier evaluation
-                                let set_result = lua.set_local(&ar, index);
+                                let set_result = lua.set_local(&mut ar, index);
                                 if set_result.is_some() {
                                     if self.config.show_modifications {
                                         println!("Modified local variable '{}' to value {:?}", variable_name, value_result);

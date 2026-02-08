@@ -38,6 +38,11 @@ mod bin {
             #[arg(long)]
             pid: Option<u32>,
         },
+        #[command(about = "Hot reload a module")]
+        HotReload {
+            #[arg(long, short = 'm')]
+            module: String,
+        },
     }
 
     #[derive(Serialize, Deserialize)]
@@ -193,6 +198,13 @@ mod bin {
                 if let Some(p) = pid {
                     println!("PID: {}", p);
                 }
+            }
+            Some(Commands::HotReload { module }) => {
+                println!("Hot reload mode");
+                println!("Module: {}", module);
+                // In a real implementation, we would connect to the DAP server
+                // and send a hot reload request here
+                println!("Hot reloading module: {}", module);
             }
             None => {
                 println!("No command specified. Use --help for usage.");

@@ -1,4 +1,4 @@
-use super::{super::*, BreakpointType, DebugRuntime, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
+use super::{super::*, BreakpointType, DebugRuntime, ExceptionInfo, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
 use crate::runtime::lua_state::{Lua, DebugInfo};
 use crate::runtime::lua_ffi::*;
 use async_trait::async_trait;
@@ -692,6 +692,11 @@ impl DebugRuntime for LuaNextRuntime {
 
     async fn get_exception_info(&mut self, _thread_id: u64) -> Result<ExceptionInfo, RuntimeError> {
         Err(RuntimeError::NotImplemented("get_exception_info not implemented".to_string()))
+    }
+
+    async fn check_data_breakpoints(&mut self, _frame_id: i64) -> Result<bool, RuntimeError> {
+        // Not implemented for LuaNext yet
+        Ok(false)
     }
 }
 

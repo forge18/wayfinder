@@ -279,33 +279,33 @@ src/
 
 ### State Capture
 
-- [ ] Implement `state_capture.rs`
-- [ ] Capture global table entries
-- [ ] Capture upvalues for existing functions
-- [ ] Record table structure and contents
-- [ ] Detect circular references
+- [x] Implement `state_capture.rs`
+- [x] Capture global table entries
+- [x] Capture upvalues for existing functions
+- [x] Record table structure and contents
+- [x] Detect circular references
 
 ### Module Reload
 
-- [ ] Implement `hot_reload.rs`
-- [ ] Compile new module source via LuaNext
-- [ ] Execute to get new module table
-- [ ] Call new module chunk
+- [x] Implement `hot_reload.rs`
+- [x] Compile new module source via LuaNext
+- [x] Execute to get new module table
+- [x] Call new module chunk
 
 ### State Restoration
 
-- [ ] Restore global variables (if they existed)
-- [ ] Preserve table contents where possible
-- [ ] Handle new/deleted fields
-- [ ] Generate warnings for unpreserved state
-- [ ] Output warnings to console/DAP output
+- [x] Restore global variables (if they existed)
+- [x] Preserve table contents where possible
+- [x] Handle new/deleted fields
+- [x] Generate warnings for unpreserved state
+- [x] Output warnings to console/DAP output
 
 ### Update Propagation
 
-- [ ] Find existing closures referencing old module
-- [ ] Update module table reference
-- [ ] Preserve function identity where possible
-- [ ] Handle closures with captured state
+- [x] Find existing closures referencing old module
+- [x] Update module table reference
+- [x] Preserve function identity where possible
+- [x] Handle closures with captured state
 
 ### User Interface
 
@@ -508,6 +508,13 @@ path = "src/main.rs"
 - Implemented source map preference configuration
 - Comprehensive test suite with 38 tests covering all functionality
 
+**Phase 5: In Progress**
+- Basic hot code reload infrastructure implemented
+- State capture and restoration for global variables and upvalues
+- Module reloading with compilation and execution
+- Update propagation for closures referencing old modules
+- Working on CLI command and DAP protocol extension for hot reload
+
 ```bash
 # Test current CLI
 cargo run -- --help
@@ -520,3 +527,9 @@ cargo run -- launch script.lua
 - Source map translator infrastructure ready
 - Full DAP wrapper with message interception and translation
 - Complete test coverage for all Phase 4 features
+
+**Hot Code Reload**
+- Partial hot reload implementation with state preservation
+- Module reloading and update propagation
+- Working on CLI and DAP integration
+- Building test coverage for Phase 5 features

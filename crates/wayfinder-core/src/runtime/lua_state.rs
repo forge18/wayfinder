@@ -38,7 +38,7 @@ impl Lua {
         }
     }
 
-    pub fn get_local(&self, ar: &lua_Debug, n: c_int) -> Option<String> {
+    pub fn get_local(&self, ar: &mut lua_Debug, n: c_int) -> Option<String> {
         unsafe {
             let name_ptr = lua_getlocal(self.state, ar, n);
             if name_ptr.is_null() {
@@ -50,7 +50,7 @@ impl Lua {
         }
     }
 
-    pub fn set_local(&self, ar: &lua_Debug, n: c_int) -> Option<String> {
+    pub fn set_local(&self, ar: &mut lua_Debug, n: c_int) -> Option<String> {
         unsafe {
             let name_ptr = lua_setlocal(self.state, ar, n);
             if name_ptr.is_null() {

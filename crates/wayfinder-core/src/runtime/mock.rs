@@ -210,4 +210,8 @@ impl super::DebugRuntime for MockRuntime {
             details: None,
         })
     }
+
+    async fn check_data_breakpoints(&mut self, _frame_id: i64) -> Result<bool, RuntimeError> {
+        Ok(false)
+    }
 }
