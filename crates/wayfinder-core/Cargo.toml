@@ -2,6 +2,7 @@
 name = "wayfinder-core"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
 
 [dependencies]
 serde.workspace = true
@@ -11,3 +12,9 @@ tokio.workspace = true
 async-trait.workspace = true
 luanext-sourcemap = { path = "../luanext/crates/luanext-sourcemap" }
 libc = "0.2"
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }

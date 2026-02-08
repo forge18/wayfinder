@@ -1,7 +1,7 @@
 # Wayfinder TODO
 
 **Plan:** [docs/PLAN.md](./PLAN.md)
-**Status:** Phase 1 Complete - Phase 2 In Progress
+**Status:** Phase 1 Complete - Phase 2 Complete
 
 ---
 
@@ -49,7 +49,7 @@ src/
 ---
 
 
-## Phase 2: Core DAP (In Progress)
+## Phase 2: Core DAP (Complete ✓)
 
 ### DAP Protocol
 
@@ -135,11 +135,11 @@ src/
 
 ### Phase 2 Tests
 
-- [ ] Integration tests with each Lua version (5.1, 5.2, 5.3, 5.4)
-- [ ] DAP protocol compliance tests
-- [ ] Breakpoint accuracy tests
-- [ ] Variable inspection tests
-- [ ] Expression evaluation tests
+- [x] Integration tests with each Lua version (5.1, 5.2, 5.3, 5.4)
+- [x] DAP protocol compliance tests
+- [x] Breakpoint accuracy tests
+- [x] Variable inspection tests
+- [x] Expression evaluation tests
 
 ---
 
@@ -466,7 +466,7 @@ path = "src/main.rs"
 - Working: `wayfinder --help`, `wayfinder dap`, `wayfinder launch`, `wayfinder attach`
 - Config file loading working (`wayfinder.yaml`)
 
-**Phase 2: In Progress**
+**Phase 2: Complete ✓**
 - DAP protocol types implemented (Message, Response, Event)
 - Runtime abstraction trait with async methods
 - Mock runtime for testing
@@ -482,8 +482,9 @@ path = "src/main.rs"
   - Variables inspection
   - Expression evaluation
   - Breakpoint infrastructure ready
+- Comprehensive test suite for all core functionality
 
-**Next: Complete breakpoint integration and tests**
+**Next: Begin Phase 3 - Advanced Features**
 
 ```bash
 # Test current CLI
