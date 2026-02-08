@@ -28,6 +28,9 @@ pub struct DataBreakpoint {
     pub data_type: DataType,
     /// Access type to monitor
     pub access_type: AccessType,
+    /// Previous value of the watched variable (for change detection)
+    #[serde(skip)]
+    pub previous_value: Option<String>,
 }
 
 /// Types of data that can be watched
@@ -39,6 +42,12 @@ pub enum DataType {
     Global,
     /// Watch an upvalue
     Upvalue,
+    /// Watch a specific upvalue identified by its ID
+    UpvalueId {
+        function_index: i32,
+        upvalue_index: i32,
+        upvalue_id: usize,
+    },
     /// Watch a table field
     TableField { table_ref: i64, field: String },
 }
@@ -86,6 +95,8 @@ impl WatchpointManager {
             }
             // Initialize hit count to 0 for new breakpoints
             bp.hit_count = 0;
+            // Initialize previous value to None for new breakpoints
+            bp.previous_value = None;
             breakpoints_with_ids.push(bp);
         }
 
@@ -136,6 +147,31 @@ impl WatchpointManager {
     /// Gets the hit count for a data breakpoint
     pub fn get_data_breakpoint_hit_count(&self, id: i64) -> Option<usize> {
         self.data_breakpoints.get(&id).map(|bp| bp.hit_count)
+    }
+
+    /// Updates the previous value for a data breakpoint
+    pub fn update_data_breakpoint_previous_value(&mut self, id: i64, value: String) -> bool {
+        if let Some(bp) = self.data_breakpoints.get_mut(&id) {
+            bp.previous_value = Some(value);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Gets the previous value for a data breakpoint
+    pub fn get_data_breakpoint_previous_value(&self, id: i64) -> Option<&String> {
+        self.data_breakpoints
+            .get(&id)
+            .and_then(|bp| bp.previous_value.as_ref())
+    }
+
+    /// Checks if a data breakpoint's value has changed
+    pub fn has_data_breakpoint_value_changed(&self, id: i64, current_value: &str) -> bool {
+        match self.get_data_breakpoint_previous_value(id) {
+            Some(prev_value) => prev_value != current_value,
+            None => true, // If no previous value, consider it changed
+        }
     }
 }
 

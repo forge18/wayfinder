@@ -1,5 +1,26 @@
 use super::{super::*, BreakpointType, DebugRuntime, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
+use super::super::config::DebuggerConfig;
 use super::super::debug::breakpoints::{LineBreakpoint, FunctionBreakpoint};
+use super::super::debug::watchpoints::{DataBreakpoint, WatchpointManager, DataType, AccessType};
+use super::lua_state::Lua;
+use std::sync::RwLock;
+
+/// Check if any watchpoints have been triggered
+unsafe fn check_watchpoints(_L: LuaState, _ar: *mut lua_Debug) -> bool {
+    // In a complete implementation, this would:
+    // 1. Access the watchpoint manager (probably through a static or passed parameter)
+    // 2. Iterate through all active data breakpoints
+    // 3. For each watchpoint:
+    //    - Determine the variable type (local, global, upvalue, table field)
+    //    - Get the current value using appropriate Lua debug API functions
+    //    - Compare with the previous value
+    //    - If changed and access type matches, trigger the watchpoint
+    // 4. Return true if any watchpoint was triggered
+    
+    // For now, we'll return false as this is a complex feature that requires
+    // significant implementation work
+    false
+}
 use crate::runtime::lua_state::{Lua, DebugInfo};
 use crate::runtime::lua_ffi::*;
 use async_trait::async_trait;
@@ -18,6 +39,8 @@ static mut CURRENT_SOURCE: Option<String> = None;
 static mut STEP_MODE: AtomicUsize = AtomicUsize::new(0);
 static mut STEP_DEPTH: AtomicUsize = AtomicUsize::new(0);
 static mut STEP_TRIGGERED: AtomicBool = AtomicBool::new(false);
+// Note: Storing runtime references in static variables is not thread-safe
+// This is a simplification for the prototype
 
 extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
     unsafe {
@@ -61,7 +84,13 @@ extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
             false
         };
 
-        if triggered_for_step {
+        // Check for watchpoint triggers
+        // Note: This is a simplified approach as we can't easily pass the runtime instance
+        // to the static hook callback. In a full implementation, we would need a more
+        // sophisticated approach, possibly using thread-local storage or a global registry.
+        let watchpoint_triggered = false; // Placeholder - would need access to runtime instance
+
+        if triggered_for_step || watchpoint_triggered {
             STEP_TRIGGERED.store(true, Ordering::SeqCst);
             PAUSED.store(true, Ordering::SeqCst);
         }
@@ -72,6 +101,9 @@ pub struct PUCLuaRuntime {
     lua: Arc<Mutex<Lua>>,
     breakpoints: Arc<Mutex<HashMap<String, Vec<u32>>>>,
     detailed_breakpoints: Arc<Mutex<HashMap<String, Vec<LineBreakpoint>>>>,
+    watchpoint_manager: Arc<RwLock<WatchpointManager>>,
+    watched_variable_values: Arc<Mutex<HashMap<String, String>>>,
+    config: DebuggerConfig,
     step_mode: Arc<Mutex<StepMode>>,
 }
 
@@ -87,6 +119,9 @@ impl PUCLuaRuntime {
             lua: Arc::new(Mutex::new(Lua::new())),
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             detailed_breakpoints: Arc::new(Mutex::new(HashMap::new())),
+            watchpoint_manager: Arc::new(RwLock::new(WatchpointManager::new())),
+            watched_variable_values: Arc::new(Mutex::new(HashMap::new())),
+            config: DebuggerConfig::default(),
             step_mode: Arc::new(Mutex::new(StepMode::Over)),
         }
     }
@@ -656,13 +691,46 @@ impl DebugRuntime for PUCLuaRuntime {
         let is_assignment = trimmed.contains('=') && !trimmed.contains("==") && !trimmed.contains("!=");
         let is_dangerous_function = trimmed.contains("load") || trimmed.contains("dofile") || trimmed.contains("require");
 
-        // Warn about potentially dangerous operations
-        if is_assignment {
-            println!("Warning: Assignment detected in expression evaluation: {}", trimmed);
+        // Apply safety checks based on configuration
+        match self.config.eval_safety {
+            EvalSafety::Strict => {
+                // In strict mode, prevent all assignments and dangerous functions
+                if is_assignment {
+                    return Err(RuntimeError::Communication(
+                        "Assignment not allowed in strict evaluation mode".to_string()
+                    ));
+                }
+                if is_dangerous_function {
+                    return Err(RuntimeError::Communication(
+                        "Dangerous function calls not allowed in strict evaluation mode".to_string()
+                    ));
+                }
+            }
+            EvalSafety::Basic => {
+                // In basic mode, warn about assignments and dangerous functions
+                if is_assignment {
+                    println!("Warning: Assignment detected in expression evaluation: {}", trimmed);
+                }
+                if is_dangerous_function {
+                    println!("Warning: Potentially dangerous function call detected: {}", trimmed);
+                }
+            }
+            EvalSafety::None => {
+                // In none mode, allow everything but still log
+                if is_assignment {
+                    println!("Info: Assignment in expression evaluation: {}", trimmed);
+                }
+                if is_dangerous_function {
+                    println!("Info: Function call detected: {}", trimmed);
+                }
+            }
         }
-        
-        if is_dangerous_function {
-            println!("Warning: Potentially dangerous function call detected: {}", trimmed);
+
+        // If mutation is enabled and this is an assignment, try to handle it properly
+        if self.config.evaluate_mutation && is_assignment {
+            if let Some(result) = self.handle_assignment(frame_id, trimmed).await {
+                return result;
+            }
         }
 
         // Execute the expression
@@ -689,6 +757,582 @@ impl DebugRuntime for PUCLuaRuntime {
 
     async fn source(&mut self, _source_reference: i64) -> Result<String, RuntimeError> {
         Err(RuntimeError::NotImplemented("source not implemented".to_string()))
+    }
+}
+
+impl PUCLuaRuntime {
+    /// Sets a data breakpoint in the runtime
+    pub async fn set_data_breakpoint(&mut self, data_breakpoint: DataBreakpoint) -> Result<Breakpoint, RuntimeError> {
+        // Store the data breakpoint in our watchpoint manager
+        let mut watchpoint_manager = self.watchpoint_manager.write().unwrap();
+        let breakpoints = vec![data_breakpoint];
+        watchpoint_manager.set_data_breakpoints(breakpoints);
+
+        // Install hook if not already installed
+        self.install_hook();
+
+        Ok(Breakpoint {
+            id: 1,
+            verified: true,
+            line: 0,
+            message: Some("Data breakpoint set".to_string()),
+        })
+    }
+
+    /// Check if any watchpoints have been triggered
+    fn check_watchpoints(&self, frame_id: i64) -> bool {
+        let watchpoint_manager = self.watchpoint_manager.read().unwrap();
+        
+        // Iterate through all active data breakpoints
+        for (_, watchpoint) in &watchpoint_manager.data_breakpoints {
+            // Get the current value based on the data type
+            let current_value = match &watchpoint.data_type {
+                DataType::Local => self.get_local_variable_value(frame_id, &watchpoint.name),
+                DataType::Global => self.get_global_variable_value(&watchpoint.name),
+                DataType::Upvalue => self.get_upvalue_value(&watchpoint.name),
+                DataType::UpvalueId { function_index, upvalue_index, upvalue_id: _ } => {
+                    self.get_upvalue_id_value(*function_index, *upvalue_index)
+                },
+                DataType::TableField { table_ref, field } => {
+                    self.get_table_field_value(*table_ref, field)
+                }
+            };
+            
+            // If we got a current value, check if it has changed
+            if let Some(value) = current_value {
+                // Check if the value has changed
+                if watchpoint_manager.has_data_breakpoint_value_changed(watchpoint.id, &value) {
+                    // Value has changed, update the previous value
+                    drop(watchpoint_manager); // Release the read lock
+                    let mut watchpoint_manager = self.watchpoint_manager.write().unwrap();
+                    watchpoint_manager.update_data_breakpoint_previous_value(watchpoint.id, value.clone());
+                    
+                    // Check access type - for now we'll assume we're monitoring writes
+                    if matches!(watchpoint.access_type, AccessType::Write | AccessType::ReadWrite) {
+                        // Check hit conditions
+                        let should_trigger = if let Some(hit_condition) = &watchpoint.hit_condition {
+                            if !hit_condition.trim().is_empty() {
+                                watchpoint_manager.increment_data_breakpoint_hit_count(watchpoint.id);
+                                let hit_count = watchpoint_manager.get_data_breakpoint_hit_count(watchpoint.id).unwrap_or(0);
+                                match super::super::debug::hit_conditions::evaluate_hit_condition(hit_condition, hit_count) {
+                                    Ok(should_hit) => should_hit,
+                                    Err(e) => {
+                                        eprintln!("Warning: Hit condition evaluation failed for watchpoint {}: {}", watchpoint.name, e);
+                                        true // Break on error
+                                    }
+                                }
+                            } else {
+                                true
+                            }
+                        } else {
+                            watchpoint_manager.increment_data_breakpoint_hit_count(watchpoint.id);
+                            true
+                        };
+                        
+                        if should_trigger {
+                            // Check condition if present
+                            let should_break = if let Some(condition) = &watchpoint.condition {
+                                if !condition.trim().is_empty() {
+                                    // In a full implementation, we would evaluate the condition
+                                    // in the current context, but for now we'll just return true
+                                    true
+                                } else {
+                                    true
+                                }
+                            } else {
+                                true
+                            };
+                            
+                            if should_break {
+                                println!("Watchpoint triggered: {} = {}", watchpoint.name, value);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+
+    /// Sets the debugger configuration
+    pub fn set_config(&mut self, config: DebuggerConfig) {
+        self.config = config;
+    }
+
+    /// Gets the debugger configuration
+    pub fn config(&self) -> &DebuggerConfig {
+        &self.config
+    }
+
+    /// Check if any watchpoints have been triggered (public method)
+    pub async fn check_watchpoints(&self, frame_id: i64) -> Result<bool, RuntimeError> {
+        // Call the internal check_watchpoints method
+        Ok(self.check_watchpoints(frame_id))
+    }
+
+    /// Gets the current value of a local variable
+    fn get_local_variable_value(&self, frame_id: i64, variable_name: &str) -> Option<String> {
+        let lua = self.lua.lock().unwrap();
+        
+        // Create debug info structure for the specified frame
+        let mut ar = std::mem::zeroed::<lua_Debug>();
+        if lua.get_stack(frame_id as c_int, &mut ar) != 0 {
+            // Search for the variable in local scope
+            let mut index = 1i32;
+            loop {
+                // Get local variable name
+                let name_opt = lua.get_local(&ar, index);
+                
+                match name_opt {
+                    Some(name) => {
+                        if name == variable_name {
+                            // Found the variable, get its value
+                            // Convert the value to a string representation
+                            let value_type = lua.type_of(-1);
+                            let value_str = match value_type {
+                                0 => "nil".to_string(), // nil
+                                1 => {
+                                    // boolean
+                                    if lua.pop_boolean() {
+                                        "true".to_string()
+                                    } else {
+                                        "false".to_string()
+                                    }
+                                },
+                                3 => {
+                                    // number
+                                    lua.pop_number().to_string()
+                                },
+                                4 => {
+                                    // string
+                                    format!("\"{}\"", lua.pop_string())
+                                },
+                                5 => {
+                                    // table
+                                    format!("table:0x{:x}", lua.topointer(-1) as usize)
+                                },
+                                6 => {
+                                    // function
+                                    format!("function:0x{:x}", lua.topointer(-1) as usize)
+                                },
+                                7 => {
+                                    // userdata
+                                    format!("userdata:0x{:x}", lua.topointer(-1) as usize)
+                                },
+                                8 => {
+                                    // thread
+                                    format!("thread:0x{:x}", lua.topointer(-1) as usize)
+                                },
+                                _ => format!("unknown:{}", lua.type_name(value_type)),
+                            };
+                            
+                            // Remove the value from stack
+                            lua.set_top(-2);
+                            return Some(value_str);
+                        }
+                        
+                        // Remove the local variable value from stack
+                        lua.set_top(-2);
+                        index += 1;
+                    }
+                    None => {
+                        // No more local variables, break the loop
+                        break;
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    /// Gets the current value of an upvalue
+    fn get_upvalue_value(&self, variable_name: &str) -> Option<String> {
+        let lua = self.lua.lock().unwrap();
+        
+        // Try to get the current function (assuming it's at the top of stack)
+        let func_index = -1;
+        let mut index = 1i32;
+        loop {
+            let name_opt = lua.get_upvalue(func_index, index);
+            
+            match name_opt {
+                Some(name) => {
+                    if name == variable_name {
+                        // Found the upvalue, get its value
+                        // Convert the value to a string representation
+                        let value_type = lua.type_of(-1);
+                        let value_str = match value_type {
+                            0 => "nil".to_string(), // nil
+                            1 => {
+                                // boolean
+                                if lua.pop_boolean() {
+                                    "true".to_string()
+                                } else {
+                                    "false".to_string()
+                                }
+                            },
+                            3 => {
+                                // number
+                                lua.pop_number().to_string()
+                            },
+                            4 => {
+                                // string
+                                format!("\"{}\"", lua.pop_string())
+                            },
+                            5 => {
+                                // table
+                                format!("table:0x{:x}", lua.topointer(-1) as usize)
+                            },
+                            6 => {
+                                // function
+                                format!("function:0x{:x}", lua.topointer(-1) as usize)
+                            },
+                            7 => {
+                                // userdata
+                                format!("userdata:0x{:x}", lua.topointer(-1) as usize)
+                            },
+                            8 => {
+                                // thread
+                                format!("thread:0x{:x}", lua.topointer(-1) as usize)
+                            },
+                            _ => format!("unknown:{}", lua.type_name(value_type)),
+                        };
+                        
+                        // Remove the value from stack
+                        lua.set_top(-2);
+                        return Some(value_str);
+                    }
+                    
+                    // Remove the upvalue from stack
+                    lua.set_top(-2);
+                    index += 1;
+                }
+                None => {
+                    // No more upvalues, break the loop
+                    break;
+                }
+            }
+        }
+        
+        None
+    }
+
+    /// Gets the current value of an upvalue identified by its ID
+    fn get_upvalue_id_value(&self, function_index: i32, upvalue_index: i32) -> Option<String> {
+        let lua = self.lua.lock().unwrap();
+        
+        // Get the upvalue ID to verify it's the same upvalue
+        let upvalue_id = lua.upvalue_id(function_index, upvalue_index) as usize;
+        
+        // Get the upvalue value
+        let name_opt = lua.get_upvalue(function_index, upvalue_index);
+        
+        if name_opt.is_some() {
+            // Convert the value to a string representation
+            let value_type = lua.type_of(-1);
+            let value_str = match value_type {
+                0 => "nil".to_string(), // nil
+                1 => {
+                    // boolean
+                    if lua.pop_boolean() {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
+                },
+                3 => {
+                    // number
+                    lua.pop_number().to_string()
+                },
+                4 => {
+                    // string
+                    format!("\"{}\"", lua.pop_string())
+                },
+                5 => {
+                    // table
+                    format!("table:0x{:x}", lua.topointer(-1) as usize)
+                },
+                6 => {
+                    // function
+                    format!("function:0x{:x}", lua.topointer(-1) as usize)
+                },
+                7 => {
+                    // userdata
+                    format!("userdata:0x{:x}", lua.topointer(-1) as usize)
+                },
+                8 => {
+                    // thread
+                    format!("thread:0x{:x}", lua.topointer(-1) as usize)
+                },
+                _ => format!("unknown:{}", lua.type_name(value_type)),
+            };
+            
+            // Remove the value from stack
+            lua.set_top(-2);
+            Some(value_str)
+        } else {
+            None
+        }
+    }
+
+    /// Creates a watched table that intercepts field access
+    fn create_watched_table(&self, table_ref: i64, field: &str) -> Result<(), RuntimeError> {
+        let mut lua = self.lua.lock().unwrap();
+        
+        // This is a simplified implementation that would need to be expanded
+        // In a full implementation, this would:
+        // 1. Create a proxy table with __index and __newindex metamethods
+        // 2. Store the original table reference
+        // 3. Set up the metamethods to call back to the watchpoint system
+        // 4. Replace the original table with the proxy
+        
+        // For now, we'll just log that a table field is being watched
+        println!("Watching table field: table_ref={}, field={}", table_ref, field);
+        
+        Ok(())
+    }
+
+    /// Gets the current value of a table field
+    fn get_table_field_value(&self, table_ref: i64, field: &str) -> Option<String> {
+        let mut lua = self.lua.lock().unwrap();
+        
+        // Push the table onto the stack (this is simplified - in reality we'd need the actual reference)
+        // For now, we'll assume the table is accessible somehow
+        // In a full implementation, we'd need to track table references properly
+        
+        // Push the field name
+        let field_cstr = std::ffi::CString::new(field).ok()?;
+        lua_pushstring(lua.state(), field_cstr.as_ptr());
+        
+        // Get the table field value
+        if lua_gettable(lua.state(), -2) == 0 { // -2 would be the table index
+            // Got the field value, convert to string representation
+            let value_type = lua.type_of(-1);
+            let value_str = match value_type {
+                0 => "nil".to_string(), // nil
+                1 => {
+                    // boolean
+                    if lua.pop_boolean() {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
+                },
+                3 => {
+                    // number
+                    lua.pop_number().to_string()
+                },
+                4 => {
+                    // string
+                    format!("\"{}\"", lua.pop_string())
+                },
+                5 => {
+                    // table
+                    format!("table:0x{:x}", lua.topointer(-1) as usize)
+                },
+                6 => {
+                    // function
+                    format!("function:0x{:x}", lua.topointer(-1) as usize)
+                },
+                7 => {
+                    // userdata
+                    format!("userdata:0x{:x}", lua.topointer(-1) as usize)
+                },
+                8 => {
+                    // thread
+                    format!("thread:0x{:x}", lua.topointer(-1) as usize)
+                },
+                _ => format!("unknown:{}", lua.type_name(value_type)),
+            };
+            
+            // Remove the value from stack
+            lua.set_top(-2);
+            Some(value_str)
+        } else {
+            // Failed to get table field
+            lua.set_top(-2);
+            None
+        }
+    }
+
+    /// Gets the current value of a global variable
+    fn get_global_variable_value(&self, variable_name: &str) -> Option<String> {
+        let mut lua = self.lua.lock().unwrap();
+        
+        // Push the variable name and get the global value
+        let var_name_cstr = std::ffi::CString::new(variable_name).ok()?;
+        let result = unsafe { lua_getglobal(lua.state(), var_name_cstr.as_ptr()) };
+        
+        if result != 0 {
+            // Got the global variable, convert to string representation
+            let value_type = lua.type_of(-1);
+            let value_str = match value_type {
+                0 => "nil".to_string(), // nil
+                1 => {
+                    // boolean
+                    if lua.pop_boolean() {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
+                },
+                3 => {
+                    // number
+                    lua.pop_number().to_string()
+                },
+                4 => {
+                    // string
+                    format!("\"{}\"", lua.pop_string())
+                },
+                5 => {
+                    // table
+                    format!("table:0x{:x}", lua.topointer(-1) as usize)
+                },
+                6 => {
+                    // function
+                    format!("function:0x{:x}", lua.topointer(-1) as usize)
+                },
+                7 => {
+                    // userdata
+                    format!("userdata:0x{:x}", lua.topointer(-1) as usize)
+                },
+                8 => {
+                    // thread
+                    format!("thread:0x{:x}", lua.topointer(-1) as usize)
+                },
+                _ => format!("unknown:{}", lua.type_name(value_type)),
+            };
+            
+            // Remove the value from stack
+            lua.set_top(-2);
+            Some(value_str)
+        } else {
+            // Failed to get global variable
+            lua.set_top(-2);
+            None
+        }
+    }
+
+    /// Handle assignment expressions when mutation is enabled
+    async fn handle_assignment(&self, frame_id: i64, expression: &str) -> Option<Result<Value, RuntimeError>> {
+        // Parse the assignment expression (e.g., "x = 10" or "y = x + 5")
+        let parts: Vec<&str> = expression.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let variable_name = parts[0].trim();
+        let value_expression = parts[1].trim();
+
+        // Try to set the variable using debug.setlocal or debug.setupvalue
+        match self.set_variable_value(frame_id, variable_name, value_expression).await {
+            Ok(value) => Some(Ok(value)),
+            Err(e) => Some(Err(e)),
+        }
+    }
+
+    /// Set a variable value using debug.setlocal or debug.setupvalue
+    async fn set_variable_value(&self, frame_id: i64, variable_name: &str, value_expression: &str) -> Result<Value, RuntimeError> {
+        // First, evaluate the value expression to get the actual value
+        let value_result = {
+            let mut lua = self.lua.lock().unwrap();
+            if let Err(_) = lua.execute(value_expression) {
+                return Err(RuntimeError::Communication(
+                    format!("Failed to evaluate value expression: {}", value_expression)
+                ));
+            }
+            Self::lua_to_value(&mut lua, -1)
+        };
+
+        // Try to find and set the variable using debug API
+        {
+            let mut lua = self.lua.lock().unwrap();
+            
+            // Create debug info structure for the specified frame
+            let mut ar = std::mem::zeroed::<lua_Debug>();
+            if lua.get_stack(frame_id as c_int, &mut ar) != 0 {
+                // Search for the variable in local scope
+                let mut index = 1i32;
+                loop {
+                    // Get local variable name
+                    let name_opt = lua.get_local(&ar, index);
+                    
+                    match name_opt {
+                        Some(name) => {
+                            if name == variable_name {
+                                // Found the variable, set its value
+                                // The value is already on top of the stack from our earlier evaluation
+                                let set_result = lua.set_local(&ar, index);
+                                if set_result.is_some() {
+                                    if self.config.show_modifications {
+                                        println!("Modified local variable '{}' to value {:?}", variable_name, value_result);
+                                    }
+                                    return Ok(value_result);
+                                }
+                            }
+                            
+                            // Remove the local variable value from stack
+                            lua.set_top(-2);
+                            index += 1;
+                        }
+                        None => {
+                            // No more local variables, break the loop
+                            break;
+                        }
+                    }
+                }
+                
+                // If not found in locals, search upvalues
+                // Get the function at the top of the stack (current function)
+                let func_index = -1; // Assuming function is at top of stack
+                let mut index = 1i32;
+                loop {
+                    let name_opt = lua.get_upvalue(func_index, index);
+                    
+                    match name_opt {
+                        Some(name) => {
+                            if name == variable_name {
+                                // Found the upvalue, set its value
+                                // The value is already on top of the stack
+                                let set_result = lua.set_upvalue(func_index, index);
+                                if set_result.is_some() {
+                                    if self.config.show_modifications {
+                                        println!("Modified upvalue '{}' to value {:?}", variable_name, value_result);
+                                    }
+                                    return Ok(value_result);
+                                }
+                            }
+                            
+                            // Remove the upvalue from stack
+                            lua.set_top(-2);
+                            index += 1;
+                        }
+                        None => {
+                            // No more upvalues, break the loop
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If not found in locals or upvalues, treat as global variable
+        let assignment_expr = format!("{} = {}", variable_name, value_expression);
+        let mut lua = self.lua.lock().unwrap();
+        if let Err(_) = lua.execute(&assignment_expr) {
+            return Err(RuntimeError::Communication(
+                format!("Failed to execute assignment: {}", assignment_expr)
+            ));
+        }
+        
+        if self.config.show_modifications {
+            println!("Modified variable '{}' to value {:?}", variable_name, value_result);
+        }
+
+        Ok(value_result)
     }
 }
 

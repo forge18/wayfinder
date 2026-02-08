@@ -143,6 +143,12 @@ impl<R: DebugRuntime> DebugSession<R> {
         &self.config
     }
 
+    /// Check if any watchpoints have been triggered
+    pub async fn check_watchpoints(&mut self, frame_id: i64) -> Result<bool, super::runtime::RuntimeError> {
+        // Call the runtime's check_watchpoints method
+        self.runtime.check_watchpoints(frame_id).await
+    }
+
     /// Checks if we should stop at a line breakpoint based on its conditions
     pub async fn should_stop_at_line_breakpoint(&mut self, source: &str, line: u32) -> Result<bool, super::runtime::RuntimeError> {
         // Find the breakpoint in our manager

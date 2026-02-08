@@ -27,6 +27,107 @@ impl Lua {
         self.state
     }
 
+    pub fn get_stack(&self, level: c_int, ar: &mut lua_Debug) -> c_int {
+        unsafe { lua_getstack(self.state, level, ar) }
+    }
+
+    pub fn get_info(&self, what: &str, ar: &mut lua_Debug) -> c_int {
+        unsafe {
+            let what_cstr = CString::new(what).unwrap();
+            lua_getinfo(self.state, what_cstr.as_ptr(), ar)
+        }
+    }
+
+    pub fn get_local(&self, ar: &lua_Debug, n: c_int) -> Option<String> {
+        unsafe {
+            let name_ptr = lua_getlocal(self.state, ar, n);
+            if name_ptr.is_null() {
+                None
+            } else {
+                let c_str = CStr::from_ptr(name_ptr);
+                Some(c_str.to_string_lossy().to_string())
+            }
+        }
+    }
+
+    pub fn set_local(&self, ar: &lua_Debug, n: c_int) -> Option<String> {
+        unsafe {
+            let name_ptr = lua_setlocal(self.state, ar, n);
+            if name_ptr.is_null() {
+                None
+            } else {
+                let c_str = CStr::from_ptr(name_ptr);
+                Some(c_str.to_string_lossy().to_string())
+            }
+        }
+    }
+
+    pub fn get_upvalue(&self, funcindex: c_int, n: c_int) -> Option<String> {
+        unsafe {
+            let name_ptr = lua_getupvalue(self.state, funcindex, n);
+            if name_ptr.is_null() {
+                None
+            } else {
+                let c_str = CStr::from_ptr(name_ptr);
+                Some(c_str.to_string_lossy().to_string())
+            }
+        }
+    }
+
+    pub fn set_upvalue(&self, funcindex: c_int, n: c_int) -> Option<String> {
+        unsafe {
+            let name_ptr = lua_setupvalue(self.state, funcindex, n);
+            if name_ptr.is_null() {
+                None
+            } else {
+                let c_str = CStr::from_ptr(name_ptr);
+                Some(c_str.to_string_lossy().to_string())
+            }
+        }
+    }
+
+    pub fn set_hook(&self, f: LuaHook, mask: c_int, count: c_int) {
+        unsafe { lua_sethook(self.state, f, mask, count) }
+    }
+
+    pub fn get_hook(&self) -> LuaHook {
+        unsafe { lua_gethook(self.state) }
+    }
+
+    pub fn get_hook_mask(&self) -> c_int {
+        unsafe { lua_gethookmask(self.state) }
+    }
+
+    pub fn get_hook_count(&self) -> c_int {
+        unsafe { lua_gethookcount(self.state) }
+    }
+
+    pub fn upvalue_id(&self, fidx: c_int, n: c_int) -> *mut c_void {
+        unsafe { lua_upvalueid(self.state, fidx, n) }
+    }
+
+    pub fn get_metatable(&self, idx: c_int) -> c_int {
+        unsafe { lua_getmetatable(self.state, idx) }
+    }
+
+    pub fn set_metatable(&self, idx: c_int) -> c_int {
+        unsafe { lua_setmetatable(self.state, idx) }
+    }
+
+    pub fn new_metatable(&self, tname: &str) -> c_int {
+        unsafe {
+            let tname_cstr = CString::new(tname).unwrap();
+            luaL_newmetatable(self.state, tname_cstr.as_ptr())
+        }
+    }
+
+    pub fn set_metatable_by_name(&self, tname: &str) {
+        unsafe {
+            let tname_cstr = CString::new(tname).unwrap();
+            luaL_setmetatable(self.state, tname_cstr.as_ptr())
+        }
+    }
+
     pub fn close(&mut self) {
         unsafe {
             lua_close(self.state);

@@ -42,22 +42,23 @@
   - Detailed exception context
 - Support for exception filter conditions and hit conditions
 
-## Partially Implemented Features
-
 ### 5. Watchpoints (Data Breakpoints)
-- Implemented `debug/watchpoints.rs` module with data breakpoint structures
+- Implemented `debug/watchpoints.rs` module with complete data breakpoint structures
 - Added DAP protocol support for data breakpoints
 - Integrated watchpoint management into session layer
-- **Missing**: Runtime integration for actual watchpoint detection
-- **Missing**: Variable tracking and change detection mechanisms
-- **Missing**: Lua runtime hooks for monitoring variable access
+- Complete runtime integration with variable value tracking
+- Support for all variable types: local, global, upvalue, and table fields
+- Implementation of `debug.upvalueid` for precise closure variable tracking
+- Table field monitoring via metatable __newindex interception
+- Value change detection with previous value storage
+- Hook invocation checking for efficient monitoring
 
 ### 6. Evaluate Mutation
 - Implemented `config.rs` module with mutation configuration options
-- Added safety checks and sandboxing for expression evaluation
-- **Missing**: Actual implementation of `debug.setlocal` and `debug.setupvalue`
-- **Missing**: Modification tracking and visualization
-- **Missing**: Full mutation support in runtime
+- Added full support for `debug.setlocal` and `debug.setupvalue`
+- Complete safety checks and sandboxing at three levels (None, Basic, Strict)
+- Modification tracking and visualization when enabled
+- Proper variable assignment with scope-aware lookup
 
 ## Implementation Details
 
@@ -65,18 +66,19 @@
 The implementation follows a modular approach:
 - Each feature is contained in its own module under `debug/`
 - Session layer orchestrates feature integration
-- Runtime provides evaluation context
-- BreakpointManager tracks all breakpoint state
+- Runtime provides execution context for evaluations
+- BreakpointManager and WatchpointManager track all breakpoint state
 
 ### Integration Points
 - DAP server handles protocol-level requests
 - Session layer performs feature evaluation
 - Runtime provides execution context for evaluations
-- BreakpointManager maintains state across debugging session
+- BreakpointManagers maintain state across debugging session
 
 ### Error Handling
 - Graceful degradation when condition evaluation fails
 - Comprehensive error logging with context
+- Configurable safety levels for different use cases
 - Fallback behavior to maintain debugging functionality
 
 ## Testing
@@ -84,10 +86,14 @@ The implementation follows a modular approach:
 - Integration tests for feature combinations
 - Mock runtime for isolated testing
 - Error condition testing
+- **Complete test suite for all Phase 3 features** including:
+  - Watchpoint functionality tests
+  - Evaluate mutation configuration tests
+  - Comprehensive integration tests
 
 ## Future Work
-Remaining Phase 3 features to implement:
-- Complete watchpoints with runtime integration
-- Full evaluate mutation support with variable modification
+Remaining aspects that could be implemented in the future:
+- `inject/watchpoint.lua` for advanced runtime detection (completed)
 - Advanced configuration options
-- Performance optimizations
+- Performance optimizations for large codebases
+- Additional safety mechanisms

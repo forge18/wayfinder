@@ -1,7 +1,7 @@
 # Wayfinder TODO
 
 **Plan:** [docs/PLAN.md](./PLAN.md)
-**Status:** Phase 1 Complete - Phase 2 Complete
+**Status:** Phase 1 Complete - Phase 2 Complete - Phase 3 Complete
 
 ---
 
@@ -141,9 +141,15 @@ src/
 - [x] Variable inspection tests
 - [x] Expression evaluation tests
 
+### Phase 3 Tests
+
+- [x] Watchpoint functionality tests
+- [x] Evaluate mutation tests
+- [x] Integration tests for all Phase 3 features
+
 ---
 
-## Phase 3: Advanced Features (3 weeks) (Partially Complete)
+## Phase 3: Advanced Features (3 weeks) (Complete ✓)
 
 ### Conditional Breakpoints
 
@@ -180,28 +186,28 @@ src/
 
 - [x] Implement `watchpoints.rs` data structures
 - [x] Add dataBreakpoint type
-- [ ] Track initial variable value
-- [ ] Check on each hook invocation
-- [ ] Implement `debug.upvalueid` for closure variables
-- [ ] Table field watchpoints via metatable __newindex
-- [ ] Create `inject/watchpoint.lua` for runtime detection
-- [ ] Runtime integration for watchpoint detection
+- [x] Track initial variable value
+- [x] Check on each hook invocation
+- [x] Implement `debug.upvalueid` for closure variables
+- [x] Table field watchpoints via metatable __newindex
+- [x] Create `inject/watchpoint.lua` for runtime detection
+- [x] Runtime integration for watchpoint detection
 
 ### Evaluate Mutation (Opt-in)
 
 - [x] Add `evaluate.mutate` config option
-- [ ] When enabled: use `debug.setlocal`
-- [ ] When enabled: use `debug.setupvalue`
-- [ ] Track modifications for clarity
+- [x] When enabled: use `debug.setlocal`
+- [x] When enabled: use `debug.setupvalue`
+- [x] Track modifications for clarity
 - [x] Add safety checks/sandboxing
 
 ### Phase 3 Tests
 
-- [ ] Conditional breakpoint accuracy tests
-- [ ] Logpoint output verification tests
-- [ ] Hit count behavior tests
-- [ ] Watchpoint triggering tests
-- [ ] Mutation safety tests
+- [x] Conditional breakpoint accuracy tests
+- [x] Logpoint output verification tests
+- [x] Hit count behavior tests
+- [x] Watchpoint triggering tests
+- [x] Mutation safety tests
 
 ---
 
@@ -485,13 +491,13 @@ path = "src/main.rs"
   - Breakpoint infrastructure ready
 - Comprehensive test suite for all core functionality
 
-**Phase 3: Partially Complete**
+**Phase 3: Complete ✓**
 - Conditional breakpoints with expression evaluation
 - Logpoints with variable substitution
 - Hit count filtering with complex conditions
 - Exception filtering with detailed exception info
-- Data breakpoints (watchpoints) data structures and DAP integration
-- Evaluate mutation configuration and basic safety controls
+- Data breakpoints (watchpoints) with full runtime support
+- Evaluate mutation with full runtime support including debug.setlocal/debug.setupvalue
 
 **Next: Begin Phase 4 - LuaNext Integration**
 
