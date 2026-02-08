@@ -70,6 +70,61 @@ impl PositionTranslator {
         Ok(())
     }
 
+    /// Translate a position from generated code to original source
+    pub fn forward_lookup(
+        &self,
+        generated_file: &PathBuf,
+        _line: u32,
+        _column: u32,
+    ) -> Result<SourceLocation, TranslationError> {
+        let source_map = self
+            .source_maps
+            .get(generated_file)
+            .ok_or_else(|| SourceMapLoaderError::NotFound)?;
+
+        // For now, we'll implement a simplified version that just returns the first source
+        // A full implementation would parse the mappings string and find the correct mapping
+        if !source_map.sources.is_empty() {
+            let original_file = PathBuf::from(&source_map.sources[0]);
+            let original_position = Position { line: 1, column: 1 };
+
+            Ok(SourceLocation {
+                file: original_file,
+                position: original_position,
+            })
+        } else {
+            Err(TranslationError::NoMappingFound)
+        }
+    }
+
+    /// Translate a position from original source to generated code
+    pub fn reverse_lookup(
+        &self,
+        original_file: &PathBuf,
+        _line: u32,
+        _column: u32,
+    ) -> Result<SourceLocation, TranslationError> {
+        // Find the source map that contains this original file
+        for (generated_file, source_map) in &self.source_maps {
+            if source_map
+                .sources
+                .iter()
+                .any(|source| PathBuf::from(source) == *original_file)
+            {
+                // For now, we'll return a simple mapping
+                // A full implementation would parse the mappings string and find the correct mapping
+                let generated_position = Position { line: 1, column: 1 };
+
+                return Ok(SourceLocation {
+                    file: generated_file.clone(),
+                    position: generated_position,
+                });
+            }
+        }
+
+        Err(TranslationError::NoMappingFound)
+    }
+
     /// Handle bundle mode where multiple source files are mapped to one generated file
     pub fn handle_bundle_mode(
         &self,
@@ -119,5 +174,41 @@ mod tests {
         };
         assert_eq!(position.line, 10);
         assert_eq!(position.column, 5);
+    }
+
+    #[test]
+    fn test_forward_lookup() {
+        let translator = PositionTranslator::new();
+        let file = PathBuf::from("test.lua");
+        let result = translator.forward_lookup(&file, 1, 1);
+        // Should fail since no source maps are loaded
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reverse_lookup() {
+        let translator = PositionTranslator::new();
+        let file = PathBuf::from("test.tl");
+        let result = translator.reverse_lookup(&file, 1, 1);
+        // Should fail since no source maps are loaded
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_handle_bundle_mode() {
+        let translator = PositionTranslator::new();
+        let file = PathBuf::from("bundle.lua");
+        let result = translator.handle_bundle_mode(&file);
+        // Should fail since no source maps are loaded
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lookup_with_fallback() {
+        let translator = PositionTranslator::new();
+        let file = PathBuf::from("test.lua");
+        let result = translator.lookup_with_fallback(&file);
+        // Should be None since no source maps are loaded
+        assert!(result.is_none());
     }
 }

@@ -194,4 +194,55 @@ mod tests {
             &SourceMapBehavior::Ask
         );
     }
+
+    #[test]
+    fn test_set_default_behavior() {
+        let mut preferences = SourceMapPreferences::new();
+        assert_eq!(preferences.default_behavior, SourceMapBehavior::Ask);
+
+        preferences.set_default_behavior(SourceMapBehavior::Strict);
+        assert_eq!(preferences.default_behavior, SourceMapBehavior::Strict);
+    }
+
+    #[test]
+    fn test_should_ask_user() {
+        let mut preferences = SourceMapPreferences::new();
+        assert!(preferences.should_ask_user("test.lua"));
+
+        preferences.set_behavior_for_file("test.lua".to_string(), SourceMapBehavior::Strict);
+        assert!(!preferences.should_ask_user("test.lua"));
+    }
+
+    #[test]
+    fn test_is_lenient_mode() {
+        let mut preferences = SourceMapPreferences::new();
+        assert!(!preferences.is_lenient_mode("test.lua"));
+
+        preferences.set_behavior_for_file("test.lua".to_string(), SourceMapBehavior::Lenient);
+        assert!(preferences.is_lenient_mode("test.lua"));
+    }
+
+    #[test]
+    fn test_is_strict_mode() {
+        let mut preferences = SourceMapPreferences::new();
+        assert!(!preferences.is_strict_mode("test.lua"));
+
+        preferences.set_behavior_for_file("test.lua".to_string(), SourceMapBehavior::Strict);
+        assert!(preferences.is_strict_mode("test.lua"));
+    }
+
+    #[test]
+    fn test_set_persist_preferences() {
+        let mut preferences = SourceMapPreferences::new();
+        assert!(preferences.persist_preferences);
+
+        preferences.set_persist_preferences(false);
+        assert!(!preferences.persist_preferences);
+    }
+
+    #[test]
+    fn test_config_load_save() {
+        let config = Config::load().unwrap();
+        assert!(config.save().is_ok());
+    }
 }

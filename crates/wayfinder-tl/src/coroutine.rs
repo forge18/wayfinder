@@ -163,6 +163,21 @@ impl CoroutineDebugger {
             frame.function_name.clone()
         }
     }
+
+    /// Implement coroutine switching
+    pub fn switch_to_coroutine(&mut self, id: &str) -> Result<(), CoroutineError> {
+        if self.coroutines.contains_key(id) {
+            self.current_coroutine = Some(id.to_string());
+            Ok(())
+        } else {
+            Err(CoroutineError::NotFound(id.to_string()))
+        }
+    }
+
+    /// Add breakOnAll coroutine option
+    pub fn enable_break_on_all(&mut self, enabled: bool) {
+        self.break_on_all = enabled;
+    }
 }
 
 impl Default for CoroutineDebugger {
@@ -193,5 +208,189 @@ mod tests {
         assert_ne!(running, suspended);
         assert_ne!(suspended, dead);
         assert_ne!(dead, error);
+    }
+
+    #[test]
+    fn test_coroutine_switching() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: Some("Test Coroutine".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+        assert!(debugger.switch_to_coroutine("test-coroutine").is_ok());
+        assert_eq!(
+            debugger.current_coroutine,
+            Some("test-coroutine".to_string())
+        );
+    }
+
+    #[test]
+    fn test_coroutine_enumeration() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine1 = Coroutine {
+            id: "coroutine-1".to_string(),
+            name: Some("Coroutine 1".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        let coroutine2 = Coroutine {
+            id: "coroutine-2".to_string(),
+            name: Some("Coroutine 2".to_string()),
+            status: CoroutineStatus::Running,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine1);
+        debugger.update_coroutine(coroutine2);
+
+        let coroutines = debugger.enumerate_coroutines();
+        assert_eq!(coroutines.len(), 2);
+    }
+
+    #[test]
+    fn test_get_coroutine() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: Some("Test Coroutine".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+
+        assert!(debugger.get_coroutine("test-coroutine").is_some());
+        assert!(debugger.get_coroutine("non-existent").is_none());
+    }
+
+    #[test]
+    fn test_remove_coroutine() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: Some("Test Coroutine".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+        assert!(debugger.get_coroutine("test-coroutine").is_some());
+
+        debugger.remove_coroutine("test-coroutine");
+        assert!(debugger.get_coroutine("test-coroutine").is_none());
+    }
+
+    #[test]
+    fn test_set_current_coroutine() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: Some("Test Coroutine".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+
+        assert!(debugger
+            .set_current_coroutine(Some("test-coroutine".to_string()))
+            .is_ok());
+        assert_eq!(
+            debugger.current_coroutine,
+            Some("test-coroutine".to_string())
+        );
+
+        assert!(debugger
+            .set_current_coroutine(Some("non-existent".to_string()))
+            .is_err());
+    }
+
+    #[test]
+    fn test_should_break() {
+        let mut debugger = CoroutineDebugger::new();
+
+        // By default, should break only on main coroutine (None)
+        assert!(debugger.should_break());
+
+        // Enable break on all
+        debugger.set_break_on_all(true);
+        assert!(debugger.should_break());
+
+        // Disable break on all
+        debugger.set_break_on_all(false);
+        assert!(debugger.should_break());
+    }
+
+    #[test]
+    fn test_set_coroutine_name() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: None,
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+
+        assert!(debugger
+            .set_coroutine_name("test-coroutine", "New Name".to_string())
+            .is_ok());
+        assert_eq!(
+            debugger.get_coroutine("test-coroutine").unwrap().name,
+            Some("New Name".to_string())
+        );
+
+        assert!(debugger
+            .set_coroutine_name("non-existent", "New Name".to_string())
+            .is_err());
+    }
+
+    #[test]
+    fn test_format_coroutine_frame() {
+        let mut debugger = CoroutineDebugger::new();
+
+        let coroutine = Coroutine {
+            id: "test-coroutine".to_string(),
+            name: Some("Test Coroutine".to_string()),
+            status: CoroutineStatus::Suspended,
+            stack_trace: None,
+        };
+
+        debugger.update_coroutine(coroutine);
+
+        let frame = StackFrame {
+            function_name: "test_function".to_string(),
+            source_file: "test.lua".to_string(),
+            line_number: 10,
+        };
+
+        let formatted = debugger.format_coroutine_frame("test-coroutine", &frame);
+        assert_eq!(formatted, "test_function (Test Coroutine)");
+
+        let formatted_unknown = debugger.format_coroutine_frame("unknown-coroutine", &frame);
+        assert_eq!(formatted_unknown, "test_function");
+    }
+
+    #[test]
+    fn test_enable_break_on_all() {
+        let mut debugger = CoroutineDebugger::new();
+
+        assert!(!debugger.break_on_all);
+        debugger.enable_break_on_all(true);
+        assert!(debugger.break_on_all);
+        debugger.enable_break_on_all(false);
+        assert!(!debugger.break_on_all);
     }
 }
