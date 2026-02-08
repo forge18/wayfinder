@@ -4,6 +4,9 @@ mod bin {
     use clap::{Parser, Subcommand};
     use serde::{Deserialize, Serialize};
     use std::path::PathBuf;
+    use tokio::process::Command;
+    use wayfinder_core::runtime::puc_lua::PUCLuaRuntime;
+    use wayfinder_core::session::DapServer;
 
     #[derive(Parser)]
     #[command(name = "wayfinder")]
@@ -121,6 +124,24 @@ mod bin {
                 println!("DAP server mode");
                 if let Some(p) = port {
                     println!("Port: {}", p);
+                    // In a real implementation, we would start a TCP server here
+                } else {
+                    // STDIO mode
+                    println!("Running in stdio mode");
+
+                    // Create DAP server
+                    let mut server: DapServer<PUCLuaRuntime> = DapServer::new();
+
+                    // Set up the runtime
+                    let runtime = PUCLuaRuntime::new();
+                    server.set_runtime(runtime);
+
+                    // Run the event loop
+                    if let Err(e) =
+                        tokio::runtime::Handle::current().block_on(server.run_event_loop())
+                    {
+                        eprintln!("Error running DAP server: {}", e);
+                    }
                 }
             }
             Some(Commands::Launch {
@@ -133,14 +154,35 @@ mod bin {
                 let effective_runtime = runtime.or(config.as_ref().and_then(|c| c.runtime.clone()));
                 let effective_cwd = cwd.or(config.as_ref().and_then(|c| c.cwd.clone()));
 
-                if let Some(r) = effective_runtime {
+                if let Some(r) = &effective_runtime {
                     println!("Runtime: {}", r);
                 }
-                if let Some(c) = effective_cwd {
+                if let Some(c) = &effective_cwd {
                     println!("CWD: {}", c);
                 }
                 if let Some(s) = script {
                     println!("Script: {}", s);
+
+                    // Actually launch the script
+                    let mut cmd = Command::new("lua");
+                    if let Some(cwd) = &effective_cwd {
+                        cmd.current_dir(cwd);
+                    }
+                    cmd.arg(&s);
+
+                    match cmd.spawn() {
+                        Ok(child) => {
+                            if let Some(pid) = child.id() {
+                                println!("Launched process with PID: {}", pid);
+                            } else {
+                                println!("Launched process (PID unavailable)");
+                            }
+                            // In a real implementation, we would attach the debugger here
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to launch script: {}", e);
+                        }
+                    }
                 }
             }
             Some(Commands::Attach { port, pid }) => {

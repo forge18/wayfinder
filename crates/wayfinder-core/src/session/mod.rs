@@ -108,15 +108,40 @@ impl<R: DebugRuntime> DebugSession<R> {
 
 pub struct DapServer<R: DebugRuntime> {
     session: Option<DebugSession<R>>,
+    process_handle: Option<tokio::process::Child>,
+    is_running: bool,
 }
 
 impl<R: DebugRuntime> DapServer<R> {
     pub fn new() -> Self {
-        Self { session: None }
+        Self { 
+            session: None,
+            process_handle: None,
+            is_running: false,
+        }
     }
 
     pub fn set_runtime(&mut self, runtime: R) {
         self.session = Some(DebugSession::new(runtime));
+    }
+
+    pub fn set_process(&mut self, process: tokio::process::Child) {
+        self.process_handle = Some(process);
+        self.is_running = true;
+    }
+
+    pub async fn terminate_process(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(mut process) = self.process_handle.take() {
+            // Try graceful termination first
+            process.kill().await?;
+            let _ = process.wait().await;
+        }
+        self.is_running = false;
+        Ok(())
+    }
+
+    pub fn is_process_running(&self) -> bool {
+        self.is_running
     }
 
     pub async fn handle_request(&mut self, method: &str, params: &JsonValue, id: u64) -> Option<JsonValue> {
@@ -124,7 +149,7 @@ impl<R: DebugRuntime> DapServer<R> {
             "initialize" => Some(self.handle_initialize(id)),
             "launch" => self.handle_launch(id, params).await,
             "attach" => self.handle_attach(id, params),
-            "disconnect" => self.handle_disconnect(id),
+            "disconnect" => self.handle_disconnect(id).await,
             "setBreakpoints" => self.handle_set_breakpoints(id, params).await,
             "setFunctionBreakpoints" => self.handle_set_function_breakpoints(id, params).await,
             "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(id, params).await,
@@ -183,7 +208,16 @@ impl<R: DebugRuntime> DapServer<R> {
         Some(json!({ "id": id, "result": {} }))
     }
 
-    fn handle_disconnect(&self, id: u64) -> Option<JsonValue> {
+    async fn handle_disconnect(&mut self, id: u64) -> Option<JsonValue> {
+        // Terminate the debuggee process if it's running
+        if let Err(e) = self.terminate_process().await {
+            eprintln!("Error terminating process: {}", e);
+        }
+        
+        // Clean up the session
+        self.session = None;
+        self.is_running = false;
+        
         Some(json!({ "id": id, "result": {} }))
     }
 
@@ -550,14 +584,20 @@ impl<R: DebugRuntime> DapServer<R> {
         }
     }
 
-    async fn handle_source(&mut self, id: u64, params: &JsonValue) -> Option<JsonValue> {
-        let _source_reference = params.get("sourceReference")?.as_i64()?;
+    async fn handle_source(&mut self, id: u64, _params: &JsonValue) -> Option<JsonValue> {
         Some(json!({
             "id": id,
             "result": {
                 "content": "-- Source code not available"
             }
         }))
+    }
+
+    pub async fn run_event_loop(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // This would typically be implemented with a transport layer
+        // For now, we'll just indicate that the event loop is ready
+        println!("DAP server event loop started");
+        Ok(())
     }
 
     fn error_response(&self, id: u64, code: i32, message: String) -> JsonValue {

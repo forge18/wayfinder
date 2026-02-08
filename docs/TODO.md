@@ -129,9 +129,9 @@ src/
 
 ### Session Management
 
-- [ ] Debug session lifecycle (initialize → terminate)
-- [ ] Event loop for handling DAP messages
-- [ ] Thread/process management for debuggee
+- [x] Debug session lifecycle (initialize → terminate)
+- [x] Event loop for handling DAP messages
+- [x] Thread/process management for debuggee
 
 ### Phase 2 Tests
 
