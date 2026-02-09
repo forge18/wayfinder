@@ -303,3 +303,14 @@ pub const LUA_OPUNM: c_int = 6;
 pub const LUA_OPEQ: c_int = 0;
 pub const LUA_OPLT: c_int = 1;
 pub const LUA_OPLE: c_int = 2;
+
+// Garbage collector constants
+pub const LUA_GCSTOP: c_int = 0;
+pub const LUA_GCRESTART: c_int = 1;
+pub const LUA_GCCOLLECT: c_int = 2;
+pub const LUA_GCCOUNT: c_int = 3;
+pub const LUA_GCCOUNTB: c_int = 4;
+pub const LUA_GCSTEP: c_int = 5;
+pub const LUA_GCSETPAUSE: c_int = 6;
+pub const LUA_GCSETSTEPMUL: c_int = 7;
+pub const LUA_GCISRUNNING: c_int = 9;

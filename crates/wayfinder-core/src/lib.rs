@@ -10,12 +10,16 @@ pub mod config;
 pub mod dap;
 pub mod debug;
 pub mod hot_reload;
+pub mod memory;
+pub mod profiling;
 pub mod runtime;
 pub mod session;
 
 pub use config::{DebuggerConfig, EvalSafety};
 pub use dap::{Event, Message, ProtocolMessage, Response};
 pub use debug::breakpoints::{BreakpointManager, LineBreakpoint, FunctionBreakpoint};
+pub use memory::MemoryStatistics;
+pub use profiling::{ProfileData, ProfilingMode, FunctionProfile};
 pub use runtime::{
     Breakpoint, BreakpointType, Frame, RuntimeError, RuntimeType, RuntimeVersion, Scope, Source,
     StepMode, Variable, VariableScope, Value,

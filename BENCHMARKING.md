@@ -5,11 +5,13 @@ This guide provides a quick reference for running performance benchmarks on Wayf
 ## Prerequisites
 
 1. **Install Lua libraries locally:**
+
    ```bash
    ./scripts/install_lua_versions.sh
    ```
 
 2. **Verify installation:**
+
    ```bash
    ls -l lua-libs/
    # Should show: liblua5.1, liblua5.2, liblua5.3, liblua5.4
@@ -24,12 +26,14 @@ This guide provides a quick reference for running performance benchmarks on Wayf
 ```
 
 This runs:
+
 - Simple benchmarks (custom timing)
 - Criterion benchmarks (statistical analysis)
 - Both dynamic and static modes
 - Generates summary report
 
 **Results:**
+
 - Console output with all timings
 - `benchmark-results/SUMMARY.md` - Executive summary
 - `target/criterion/report/index.html` - Detailed HTML reports
@@ -98,6 +102,7 @@ open target/criterion/report/index.html
 ```
 
 HTML reports include:
+
 - Line charts showing performance trends
 - Violin plots showing distribution
 - Comparison with previous runs
@@ -121,6 +126,7 @@ cargo bench --features dynamic-lua --no-default-features -- --baseline main
 ```
 
 Criterion will show:
+
 - Performance regressions (slower)
 - Performance improvements (faster)
 - Statistical significance
@@ -177,6 +183,7 @@ Criterion will show:
 **Cause:** Lua libraries not installed
 
 **Fix:**
+
 ```bash
 ./scripts/install_lua_versions.sh
 ls -l lua-libs/  # Verify
@@ -185,11 +192,13 @@ ls -l lua-libs/  # Verify
 ### Inconsistent Results
 
 **Causes:**
+
 - Background processes
 - Thermal throttling
 - CPU frequency scaling
 
 **Fixes:**
+
 - Close unnecessary applications
 - Run multiple times: `cargo bench -- --sample-size 200`
 - Disable CPU turbo boost for consistency
@@ -199,6 +208,7 @@ ls -l lua-libs/  # Verify
 **Cause:** Invalid or corrupted Lua library
 
 **Fix:**
+
 ```bash
 # Rebuild libraries
 ./scripts/install_lua_versions.sh

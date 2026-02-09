@@ -410,6 +410,11 @@ impl<R: DebugRuntime> DapServer<R> {
             "evaluate" => self.handle_evaluate(id, params).await,
             "source" => self.handle_source(id, params).await,
             "exceptionInfo" => self.handle_exception_info(id, params).await,
+            "memoryStatistics" => self.handle_memory_statistics(id).await,
+            "forceGC" => self.handle_force_gc(id).await,
+            "profiling/start" => self.handle_profiling_start(id, params).await,
+            "profiling/stop" => self.handle_profiling_stop(id).await,
+            "profiling/snapshot" => self.handle_profiling_snapshot(id).await,
             "hotReload" => self.handle_hot_reload(id, params).await,
             _ => Some(self.error_response(id, -32600, format!("Unknown method: {}", method))),
         }
@@ -698,6 +703,125 @@ impl<R: DebugRuntime> DapServer<R> {
         match session.run().await {
             Ok(()) => Some(json!({ "id": id, "result": { "allThreadsContinued": true } })),
             Err(e) => Some(self.error_response(id, -1, format!("Continue failed: {}", e))),
+        }
+    }
+
+    async fn handle_profiling_start(&mut self, id: u64, params: &JsonValue) -> Option<JsonValue> {
+        use crate::profiling::ProfilingMode;
+
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        let mode = params.get("mode").and_then(|v| v.as_str()).unwrap_or("sampling");
+        let profiling_mode = match mode {
+            "sampling" => {
+                let interval = params.get("intervalMs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10) as u32;
+                ProfilingMode::Sampling { interval_ms: interval }
+            }
+            "callTrace" => ProfilingMode::CallTrace,
+            "lineLevel" => ProfilingMode::LineLevel,
+            _ => return Some(self.error_response(id, -1, "Invalid profiling mode".to_string())),
+        };
+
+        match session.runtime.start_profiling(profiling_mode).await {
+            Ok(_) => Some(json!({
+                "id": id,
+                "result": { "started": true }
+            })),
+            Err(e) => Some(self.error_response(id, -1, format!("Failed to start profiling: {}", e))),
+        }
+    }
+
+    async fn handle_profiling_stop(&mut self, id: u64) -> Option<JsonValue> {
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        match session.runtime.stop_profiling().await {
+            Ok(data) => Some(json!({
+                "id": id,
+                "result": {
+                    "durationMs": data.duration_ms,
+                    "totalSamples": data.total_samples,
+                    "functions": data.functions.iter().map(|(name, profile)| {
+                        json!({
+                            "name": name,
+                            "callCount": profile.call_count,
+                            "totalTimeMs": profile.total_time_ms,
+                            "selfTimeMs": profile.self_time_ms,
+                        })
+                    }).collect::<Vec<_>>()
+                }
+            })),
+            Err(e) => Some(self.error_response(id, -1, format!("Failed to stop profiling: {}", e))),
+        }
+    }
+
+    async fn handle_profiling_snapshot(&mut self, id: u64) -> Option<JsonValue> {
+        let session = match &self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        match session.runtime.get_profile_snapshot().await {
+            Ok(Some(data)) => Some(json!({
+                "id": id,
+                "result": {
+                    "durationMs": data.duration_ms,
+                    "totalSamples": data.total_samples,
+                    "functions": data.functions.iter().map(|(name, profile)| {
+                        json!({
+                            "name": name,
+                            "callCount": profile.call_count,
+                            "totalTimeMs": profile.total_time_ms,
+                            "selfTimeMs": profile.self_time_ms,
+                        })
+                    }).collect::<Vec<_>>()
+                }
+            })),
+            Ok(None) => Some(self.error_response(id, -1, "No active profiler".to_string())),
+            Err(e) => Some(self.error_response(id, -1, format!("Failed to get profile snapshot: {}", e))),
+        }
+    }
+
+    async fn handle_memory_statistics(&mut self, id: u64) -> Option<JsonValue> {
+        let session = match &self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        match session.runtime.get_memory_statistics().await {
+            Ok(stats) => Some(json!({
+                "id": id,
+                "result": {
+                    "totalKB": stats.total_kb,
+                    "totalBytes": stats.total_bytes,
+                    "gcPause": stats.gc_pause,
+                    "gcStepMul": stats.gc_step_mul,
+                    "gcRunning": stats.gc_running,
+                }
+            })),
+            Err(e) => Some(self.error_response(id, -1, format!("Failed to get memory statistics: {}", e))),
+        }
+    }
+
+    async fn handle_force_gc(&mut self, id: u64) -> Option<JsonValue> {
+        let session = match &mut self.session {
+            Some(s) => s,
+            None => return Some(self.error_response(id, -1, "No debug session".to_string())),
+        };
+
+        match session.runtime.force_gc().await {
+            Ok(_) => Some(json!({
+                "id": id,
+                "result": { "success": true }
+            })),
+            Err(e) => Some(self.error_response(id, -1, format!("Failed to force GC: {}", e))),
         }
     }
 

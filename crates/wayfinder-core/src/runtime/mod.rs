@@ -208,6 +208,31 @@ pub trait DebugRuntime: Send + Sync {
         let _ = (module_source, module_name); // Silence unused variable warnings
         Err(RuntimeError::NotImplemented("Hot reload not supported".to_string()))
     }
+
+    /// Get current memory statistics from the garbage collector
+    async fn get_memory_statistics(&self) -> Result<crate::memory::MemoryStatistics> {
+        Err(RuntimeError::NotImplemented("Memory statistics not supported".to_string()))
+    }
+
+    /// Force garbage collection
+    async fn force_gc(&mut self) -> Result<()> {
+        Err(RuntimeError::NotImplemented("Force GC not supported".to_string()))
+    }
+
+    /// Start profiling with the specified mode
+    async fn start_profiling(&mut self, _mode: crate::profiling::ProfilingMode) -> Result<()> {
+        Err(RuntimeError::NotImplemented("Profiling not supported".to_string()))
+    }
+
+    /// Stop profiling and return collected data
+    async fn stop_profiling(&mut self) -> Result<crate::profiling::ProfileData> {
+        Err(RuntimeError::NotImplemented("Profiling not supported".to_string()))
+    }
+
+    /// Get a snapshot of current profiling data without stopping
+    async fn get_profile_snapshot(&self) -> Result<Option<crate::profiling::ProfileData>> {
+        Ok(None)
+    }
 }
 
 /// Information about an exception

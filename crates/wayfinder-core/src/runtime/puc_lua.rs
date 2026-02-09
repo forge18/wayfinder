@@ -41,6 +41,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use once_cell::sync::Lazy;
 
 static mut PAUSED: AtomicBool = AtomicBool::new(false);
 static mut SHOULD_STEP: AtomicBool = AtomicBool::new(false);
@@ -51,6 +52,15 @@ static mut STEP_DEPTH: AtomicUsize = AtomicUsize::new(0);
 static mut STEP_TRIGGERED: AtomicBool = AtomicBool::new(false);
 // Note: Storing runtime references in static variables is not thread-safe
 // This is a simplification for the prototype
+
+// Profiler registry: maps runtime ID to active profiler
+static PROFILER_REGISTRY: Lazy<Mutex<HashMap<usize, Arc<Mutex<crate::profiling::Profiler>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Thread-local to track current runtime ID (used in hook callback)
+thread_local! {
+    static CURRENT_RUNTIME_ID: std::cell::Cell<usize> = std::cell::Cell::new(0);
+}
 
 extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
     unsafe {
@@ -105,7 +115,56 @@ extern "C" fn lua_hook_callback(_L: LuaState, ar: *mut lua_Debug) {
             STEP_TRIGGERED.store(true, Ordering::SeqCst);
             PAUSED.store(true, Ordering::SeqCst);
         }
+
+        // Handle profiling events
+        let event = (*ar).event;
+        if event == LUA_HOOKCALL || event == LUA_HOOKRET || event == LUA_HOOKCOUNT {
+            let runtime_id = CURRENT_RUNTIME_ID.with(|id| id.get());
+
+            if let Ok(registry) = PROFILER_REGISTRY.lock() {
+                if let Some(profiler_arc) = registry.get(&runtime_id) {
+                    if let Ok(mut profiler) = profiler_arc.lock() {
+                        match event {
+                            LUA_HOOKCALL => {
+                                // Get function information for the call event
+                                let _ = lua_getinfo(_L, b"nS\0".as_ptr() as *const i8, ar);
+                                let name = get_hook_function_name(ar);
+                                let source = get_hook_source(ar);
+                                let line = (*ar).linedefined as u32;
+                                profiler.on_call(name, source, line);
+                            }
+                            LUA_HOOKRET => {
+                                profiler.on_return();
+                            }
+                            LUA_HOOKCOUNT => {
+                                profiler.on_sample();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+
+// Helper functions for profiling hook
+unsafe fn get_hook_function_name(ar: *mut lua_Debug) -> String {
+    if !(*ar).name.is_null() {
+        if let Ok(c_str) = CStr::from_ptr((*ar).name).to_str() {
+            return c_str.to_string();
+        }
+    }
+    format!("<?:{}?>", (*ar).linedefined)
+}
+
+unsafe fn get_hook_source(ar: *mut lua_Debug) -> Option<String> {
+    if !(*ar).source.is_null() {
+        if let Ok(c_str) = CStr::from_ptr((*ar).source).to_str() {
+            return Some(c_str.to_string());
+        }
+    }
+    None
 }
 
 pub struct PUCLuaRuntime {
@@ -902,6 +961,120 @@ impl DebugRuntime for PUCLuaRuntime {
     async fn check_data_breakpoints(&mut self, frame_id: i64) -> Result<bool, RuntimeError> {
         // Call the internal check_watchpoints method
         Ok(self.check_watchpoints(frame_id))
+    }
+
+    async fn get_memory_statistics(&self) -> Result<crate::memory::MemoryStatistics, RuntimeError> {
+        use crate::runtime::lua_ffi::*;
+        use std::time::SystemTime;
+
+        let lua = self.lua.lock().unwrap();
+        let state = lua.state();
+
+        let kb = unsafe { lua_gc(state, LUA_GCCOUNT, 0, 0) };
+        let bytes = unsafe { lua_gc(state, LUA_GCCOUNTB, 0, 0) };
+        let pause = unsafe { lua_gc(state, LUA_GCSETPAUSE, 0, 0) };
+        let step_mul = unsafe { lua_gc(state, LUA_GCSETSTEPMUL, 0, 0) };
+        let running = unsafe { lua_gc(state, LUA_GCISRUNNING, 0, 0) };
+
+        Ok(crate::memory::MemoryStatistics {
+            total_kb: kb as f64 + (bytes as f64 / 1024.0),
+            total_bytes: (kb * 1024 + bytes) as usize,
+            gc_pause: pause,
+            gc_step_mul: step_mul,
+            gc_running: running != 0,
+            timestamp: SystemTime::now(),
+        })
+    }
+
+    async fn force_gc(&mut self) -> Result<(), RuntimeError> {
+        use crate::runtime::lua_ffi::*;
+
+        let lua = self.lua.lock().unwrap();
+        let state = lua.state();
+
+        unsafe {
+            lua_gc(state, LUA_GCCOLLECT, 0, 0);
+        }
+        Ok(())
+    }
+
+    async fn start_profiling(&mut self, mode: crate::profiling::ProfilingMode) -> Result<(), RuntimeError> {
+        use crate::runtime::lua_ffi::*;
+
+        let runtime_id = self as *const _ as usize;
+        CURRENT_RUNTIME_ID.with(|id| id.set(runtime_id));
+
+        let profiler = Arc::new(Mutex::new(crate::profiling::Profiler::new(mode)));
+        PROFILER_REGISTRY.lock().unwrap().insert(runtime_id, profiler);
+
+        let lua = self.lua.lock().unwrap();
+        let state = lua.state();
+
+        // Update hook mask based on profiling mode
+        match mode {
+            crate::profiling::ProfilingMode::Sampling { interval_ms } => {
+                unsafe {
+                    lua_sethook(state, lua_hook_callback, LUA_MASKCOUNT, interval_ms as i32);
+                }
+            }
+            crate::profiling::ProfilingMode::CallTrace => {
+                unsafe {
+                    lua_sethook(state, lua_hook_callback, LUA_MASKLINE | LUA_MASKCALL | LUA_MASKRET, 0);
+                }
+            }
+            crate::profiling::ProfilingMode::LineLevel => {
+                unsafe {
+                    lua_sethook(state, lua_hook_callback, LUA_MASKLINE | LUA_MASKCALL | LUA_MASKRET, 0);
+                }
+            }
+            crate::profiling::ProfilingMode::Disabled => return Ok(()),
+        }
+
+        Ok(())
+    }
+
+    async fn stop_profiling(&mut self) -> Result<crate::profiling::ProfileData, RuntimeError> {
+        use crate::runtime::lua_ffi::*;
+
+        let runtime_id = self as *const _ as usize;
+
+        let profiler_arc = PROFILER_REGISTRY.lock().unwrap()
+            .remove(&runtime_id)
+            .ok_or(RuntimeError::Communication("No active profiler".into()))?;
+
+        // Get the profile data from the Arc<Mutex>
+        let data = {
+            let profiler_guard = profiler_arc.lock().unwrap();
+            profiler_guard.to_profile_data()
+        };
+
+        let lua = self.lua.lock().unwrap();
+        let state = lua.state();
+
+        // Reset hook to line-only mode for stepping
+        unsafe {
+            lua_sethook(state, lua_hook_callback, LUA_MASKLINE, 0);
+        }
+
+        Ok(data)
+    }
+
+    async fn get_profile_snapshot(&self) -> Result<Option<crate::profiling::ProfileData>, RuntimeError> {
+        let runtime_id = self as *const _ as usize;
+
+        let registry = PROFILER_REGISTRY.lock().unwrap();
+        if let Some(profiler_arc) = registry.get(&runtime_id) {
+            let profiler = profiler_arc.lock().unwrap();
+            // Create snapshot without finishing
+            Ok(Some(crate::profiling::ProfileData {
+                mode: profiler.mode(),
+                duration_ms: profiler.elapsed().as_secs_f64() * 1000.0,
+                functions: profiler.functions().clone(),
+                total_samples: profiler.sample_count(),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
