@@ -30,3 +30,6 @@ logs/
 # Lua builds (local development)
 /lua-builds/
 /lua-libs/
+
+# Benchmark results
+/benchmark-results/

@@ -52,3 +52,4 @@ static-lua = ["wayfinder-cli/static-lua"]
 [dependencies]
 wayfinder-cli = { path = "crates/wayfinder-cli", default-features = false }
 luanext-sourcemap = { path = "crates/luanext/crates/luanext-sourcemap" }
+tokio = { workspace = true }

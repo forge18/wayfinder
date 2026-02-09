@@ -4,7 +4,6 @@
 //! expressed as Lua expressions.
 
 use crate::runtime::{DebugRuntime, Value};
-use std::sync::Arc;
 
 /// Evaluates a condition expression in the context of the current runtime
 pub struct ConditionEvaluator;

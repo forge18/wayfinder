@@ -5,10 +5,12 @@ use async_trait::async_trait;
 use libc::c_int;
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use luanext_sourcemap::{PositionTranslator, Position, SourceMapSource};
 
 static mut PAUSED: AtomicBool = AtomicBool::new(false);
 static mut SHOULD_STEP: AtomicBool = AtomicBool::new(false);
@@ -71,6 +73,7 @@ pub struct LuaNextRuntime {
     lua: Arc<Mutex<Lua>>,
     breakpoints: Arc<Mutex<HashMap<String, Vec<u32>>>>,
     step_mode: Arc<Mutex<StepMode>>,
+    source_map_translator: Arc<Mutex<PositionTranslator>>,
 }
 
 impl LuaNextRuntime {
@@ -88,6 +91,7 @@ impl LuaNextRuntime {
             lua,
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             step_mode: Arc::new(Mutex::new(StepMode::Over)),
+            source_map_translator: Arc::new(Mutex::new(PositionTranslator::new())),
         }
     }
 
@@ -105,6 +109,7 @@ impl LuaNextRuntime {
             lua,
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             step_mode: Arc::new(Mutex::new(StepMode::Over)),
+            source_map_translator: Arc::new(Mutex::new(PositionTranslator::new())),
         }
     }
 
@@ -153,6 +158,33 @@ impl LuaNextRuntime {
     pub fn pcall(&self, nargs: c_int, nresults: c_int) -> Result<c_int, String> {
         let mut lua = self.lua.lock().unwrap();
         lua.pcall(nargs, nresults)
+    }
+
+    /// Load a source map for a compiled Lua file
+    ///
+    /// # Arguments
+    /// * `lua_file` - Path to the compiled .lua file
+    /// * `source` - Source map source (file path, inline comment, or data URI)
+    pub fn load_source_map(&mut self, lua_file: PathBuf, source: SourceMapSource) -> Result<(), RuntimeError> {
+        let mut translator = self.source_map_translator.lock().unwrap();
+        translator.load_source_map(lua_file, &source)
+            .map_err(|e| RuntimeError::Communication(format!("Failed to load source map: {}", e)))
+    }
+
+    /// Translate a position from compiled Lua to original LuaNext source
+    fn translate_to_original(&self, lua_file: &PathBuf, line: u32, column: u32) -> Option<(PathBuf, u32, u32)> {
+        let translator = self.source_map_translator.lock().unwrap();
+        translator.forward_lookup(lua_file, line, column)
+            .ok()
+            .map(|loc| (loc.file, loc.position.line, loc.position.column))
+    }
+
+    /// Translate a position from original LuaNext source to compiled Lua
+    fn translate_to_compiled(&self, luanext_file: &PathBuf, line: u32, column: u32) -> Option<(PathBuf, u32, u32)> {
+        let translator = self.source_map_translator.lock().unwrap();
+        translator.reverse_lookup(luanext_file, line, column)
+            .ok()
+            .map(|loc| (loc.file, loc.position.line, loc.position.column))
     }
 
     pub fn get_global(&mut self, name: &str) -> c_int {
@@ -314,7 +346,7 @@ impl LuaNextRuntime {
             SHOULD_STEP.store(true, Ordering::SeqCst);
             STEP_MODE.store(mode.to_u32() as usize, Ordering::SeqCst);
 
-            let mut lua = self.lua.lock().unwrap();
+            let lua = self.lua.lock().unwrap();
             let mut ar = DebugInfo::new();
             if lua.lua_getinfo( b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
                 let depth = ar.linedefined() as usize;
@@ -464,15 +496,28 @@ impl DebugRuntime for LuaNextRuntime {
     async fn set_breakpoint(&mut self, breakpoint: BreakpointType) -> Result<Breakpoint, RuntimeError> {
         match breakpoint {
             BreakpointType::Line { source, line } => {
+                // If this is a .luax file, translate the position to compiled .lua
+                let (actual_source, actual_line) = if source.ends_with(".luax") {
+                    let source_path = PathBuf::from(&source);
+                    if let Some((lua_file, lua_line, _)) = self.translate_to_compiled(&source_path, line, 1) {
+                        (lua_file.to_string_lossy().to_string(), lua_line)
+                    } else {
+                        // No source map found, use original (will debug compiled code)
+                        (source.clone(), line)
+                    }
+                } else {
+                    (source.clone(), line)
+                };
+
                 let mut breakpoints = self.breakpoints.lock().unwrap();
-                breakpoints.entry(source.clone()).or_default().push(line);
+                breakpoints.entry(actual_source.clone()).or_default().push(actual_line);
 
                 self.install_hook();
 
                 Ok(Breakpoint {
                     id: 1,
                     verified: true,
-                    line,
+                    line: actual_line,
                     message: None,
                 })
             }
@@ -528,17 +573,33 @@ impl DebugRuntime for LuaNextRuntime {
 
                 let name = ar.name().unwrap_or("unknown").to_string();
                 let source = ar.source().map(|s| s.to_string());
+                let compiled_line = ar.current_line() as u32;
+
+                // Try to translate compiled Lua position back to original LuaNext source
+                let (final_source, final_line, final_column) = if let Some(ref src) = source {
+                    let lua_path = PathBuf::from(src);
+                    if let Some((luanext_file, luanext_line, luanext_col)) =
+                        self.translate_to_original(&lua_path, compiled_line, 1) {
+                        // Successfully translated to original source
+                        (Some(luanext_file.to_string_lossy().to_string()), luanext_line, luanext_col)
+                    } else {
+                        // No source map, use compiled Lua position
+                        (source.clone(), compiled_line, 1)
+                    }
+                } else {
+                    (source.clone(), compiled_line, 1)
+                };
 
                 frames.push(Frame {
                     id: level as i64,
                     name,
-                    source: source.map(|s| Source {
+                    source: final_source.map(|s| Source {
                         name: s.clone(),
                         path: s,
                         source_reference: Some(0),
                     }),
-                    line: ar.current_line() as u32,
-                    column: 1,
+                    line: final_line,
+                    column: final_column,
                 });
             }
         }

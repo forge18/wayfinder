@@ -20,7 +20,7 @@ impl LogpointEvaluator {
         let re = Regex::new(r"\{([^}]+)\}").unwrap();
         
         let mut result = template.to_string();
-        let mut last_match = 0;
+        let _last_match = 0;
         
         // Find all placeholders and evaluate them
         for cap in re.captures_iter(template) {

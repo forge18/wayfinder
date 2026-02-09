@@ -6,9 +6,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use serde_json::Value as JsonValue;
 use wayfinder_core::runtime::puc_lua::PUCLuaRuntime;
 use wayfinder_core::session::DapServer;
 

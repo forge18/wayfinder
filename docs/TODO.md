@@ -460,7 +460,7 @@ src/
 
 **Remaining for production**:
 
-- [ ] Test with actual Lua 5.1, 5.2, 5.3, 5.4 installations
+- [x] Test with actual Lua 5.1, 5.2, 5.3, 5.4 installations
 - [ ] Verify breakpoints work across all versions
 - [ ] Test hot reload with different versions
 - [ ] CI/CD pipeline integration

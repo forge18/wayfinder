@@ -1,3 +1,11 @@
+// Allow common warnings in development/incomplete features
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
+#![allow(unused_unsafe)]
+#![allow(non_snake_case)] // Lua C API uses mixed case (_L, luaL_newstate, etc.)
+#![allow(static_mut_refs)] // Required for Lua FFI interaction
+
 pub mod config;
 pub mod dap;
 pub mod debug;

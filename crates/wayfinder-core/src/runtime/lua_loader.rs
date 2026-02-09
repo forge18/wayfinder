@@ -3,19 +3,25 @@
 //! This module provides dynamic loading of Lua libraries at runtime,
 //! allowing a single binary to support multiple Lua versions (5.1-5.4).
 
+#![allow(hidden_glob_reexports)]
+
 use super::LuaVersion;
-use super::lua_ffi::{lua_Debug, luaL_Reg};
-use std::os::raw::{c_char, c_int, c_long, c_void};
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use libloading::{Library, Symbol};
 
+// Import types from lua_ffi (will be re-exported below)
+use super::lua_ffi::{lua_Debug, c_char, c_int, c_long, c_void};
+
 pub type LuaState = *mut c_void;
 pub type LuaCFunction = extern "C" fn(*mut c_void) -> c_int;
 pub type LuaHook = extern "C" fn(*mut c_void, *mut lua_Debug);
+#[allow(non_camel_case_types)]
 pub type lua_Integer = i64;
+#[allow(non_camel_case_types)]
 pub type lua_Number = f64;
+#[allow(non_camel_case_types)]
 pub type size_t = usize;
 
 // Lua registry constants (consistent across versions)
@@ -43,6 +49,7 @@ pub struct LuaLibrary {
     inner: Arc<LuaLibraryInner>,
 }
 
+#[allow(dead_code)] // Some fields used only internally or for future features
 struct LuaLibraryInner {
     _lib: Library,
     version: LuaVersion,
@@ -120,6 +127,8 @@ struct LuaLibraryInner {
     lual_loadbuffer: Option<Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char, size_t, *const c_char) -> c_int>>,
 }
 
+// Method names follow Lua C API naming conventions (e.g., luaL_newstate, lua_pcall)
+#[allow(non_snake_case)]
 impl LuaLibrary {
     /// Load a Lua library for the specified version
     pub fn load(version: LuaVersion) -> Result<Self, LoaderError> {

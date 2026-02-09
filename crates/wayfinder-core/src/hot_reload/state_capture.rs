@@ -300,7 +300,7 @@ impl StateCapture {
     }
 
     /// Try to get the name of a function
-    fn get_function_name(&self, index: i32) -> Option<String> {
+    fn get_function_name(&self, _index: i32) -> Option<String> {
         unsafe {
             // Try to get debug info for the function
             let mut ar: lua_Debug = std::mem::zeroed();

@@ -17,6 +17,8 @@ pub struct Lua {
 
 unsafe impl Send for Lua {}
 
+// Method names follow Lua C API naming conventions
+#[allow(non_snake_case)]
 impl Lua {
     #[cfg(feature = "static-lua")]
     pub fn new() -> Self {

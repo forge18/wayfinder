@@ -1,11 +1,12 @@
 use super::{super::*, BreakpointType, DebugRuntime, ExceptionInfo, LuaVersion, RuntimeError, RuntimeType, Scope, StepMode, Value};
 use super::super::config::DebuggerConfig;
-use super::super::debug::breakpoints::{LineBreakpoint, FunctionBreakpoint};
-use super::super::debug::watchpoints::{DataBreakpoint, WatchpointManager, DataType, AccessType};
+use super::super::debug::breakpoints::LineBreakpoint;
+use super::super::debug::watchpoints::{DataBreakpoint, WatchpointManager, DataType};
 use super::lua_state::Lua;
 use std::sync::RwLock;
 
 /// Check if any watchpoints have been triggered
+#[allow(dead_code)]
 unsafe fn check_watchpoints(_L: LuaState, _ar: *mut lua_Debug) -> bool {
     // In a complete implementation, this would:
     // 1. Access the watchpoint manager (probably through a static or passed parameter)
@@ -27,10 +28,8 @@ use crate::runtime::lua_ffi::*;
 // In dynamic mode, FFI functions don't exist so we need to use wrapper methods
 // Define module-level helpers that dispatch through the Lua wrapper
 #[cfg(feature = "dynamic-lua")]
+#[allow(dead_code)]
 mod ffi_compat {
-    use super::*;
-    use crate::runtime::lua_state::Lua;
-
     // These helper functions take a Lua wrapper and forward to its methods
     // The calling code will need to be refactored to pass the Lua wrapper
 }
@@ -368,7 +367,7 @@ impl PUCLuaRuntime {
             SHOULD_STEP.store(true, Ordering::SeqCst);
             STEP_MODE.store(mode.to_u32() as usize, Ordering::SeqCst);
 
-            let mut lua = self.lua.lock().unwrap();
+            let lua = self.lua.lock().unwrap();
             let mut ar = DebugInfo::new();
             if lua.lua_getinfo(b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
                 let depth = ar.linedefined() as usize;
@@ -568,7 +567,7 @@ impl DebugRuntime for PUCLuaRuntime {
         let mut frames = Vec::new();
 
         for level in 0..10 {
-        let mut lua = self.lua.lock().unwrap();
+        let lua = self.lua.lock().unwrap();
 
             unsafe {
                 let mut ar = DebugInfo::new();
@@ -1165,7 +1164,7 @@ impl PUCLuaRuntime {
         let mut lua = self.lua.lock().unwrap();
         
         // Get the upvalue ID to verify it's the same upvalue
-        let upvalue_id = lua.upvalue_id(function_index, upvalue_index) as usize;
+        let _upvalue_id = lua.upvalue_id(function_index, upvalue_index) as usize;
         
         // Get the upvalue value
         let name_opt = lua.get_upvalue(function_index, upvalue_index);
@@ -1220,7 +1219,7 @@ impl PUCLuaRuntime {
 
     /// Creates a watched table that intercepts field access
     fn create_watched_table(&self, table_ref: i64, field: &str) -> Result<(), RuntimeError> {
-        let mut lua = self.lua.lock().unwrap();
+        let _lua = self.lua.lock().unwrap();
         
         // This is a simplified implementation that would need to be expanded
         // In a full implementation, this would:
@@ -1236,7 +1235,7 @@ impl PUCLuaRuntime {
     }
 
     /// Gets the current value of a table field
-    fn get_table_field_value(&self, table_ref: i64, field: &str) -> Option<String> {
+    fn get_table_field_value(&self, _table_ref: i64, field: &str) -> Option<String> {
         let mut lua = self.lua.lock().unwrap();
         
         // Push the table onto the stack (this is simplified - in reality we'd need the actual reference)

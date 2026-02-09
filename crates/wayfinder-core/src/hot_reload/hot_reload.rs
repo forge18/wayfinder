@@ -3,11 +3,10 @@
 //! This module handles the hot reloading of Lua modules, including compiling
 //! new source code and updating references in the runtime.
 
-use crate::hot_reload::state_capture::{CapturedGlobal, CapturedValue, StateCapture};
+use crate::hot_reload::state_capture::{CapturedGlobal, StateCapture};
 use crate::runtime::lua_ffi::*;
 use crate::runtime::lua_state::Lua;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 
 /// Errors that can occur during hot reload operations
@@ -249,7 +248,7 @@ impl HotReload {
     }
 
     /// Find existing closures referencing old module
-    pub fn find_referencing_closures(&self, module_ref: i64) -> Vec<i64> {
+    pub fn find_referencing_closures(&self, _module_ref: i64) -> Vec<i64> {
         // In a real implementation, this would traverse all functions
         // and check their upvalues for references to the old module
         // For now, we'll return an empty vector

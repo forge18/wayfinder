@@ -50,6 +50,37 @@ Validates that all Lua versions are installed correctly and tests basic function
 - Basic Lua functionality (variables, functions, control flow)
 - Version-specific features (e.g., integer division in 5.3+)
 
+### `run_benchmarks.sh`
+
+Runs comprehensive performance benchmarks for Lua loading and execution across all versions.
+
+**Requirements:**
+
+- Lua versions installed (run `install_lua_versions.sh` first)
+- Rust nightly (for better benchmark support)
+
+**Usage:**
+```bash
+./scripts/run_benchmarks.sh
+```
+
+**What it benchmarks:**
+
+- Library loading time (dynamic mode)
+- Lua state creation performance
+- Basic operations (push/pop numbers, strings, tables)
+- Script execution (factorial, fibonacci, table manipulation)
+- Compatibility shim overhead
+- Static vs dynamic mode comparison
+
+**Output:**
+
+- Console summary of all benchmarks
+- Detailed results in `benchmark-results/`
+- HTML reports in `target/criterion/report/index.html`
+
+**See also:** [Benchmarks Documentation](../docs/BENCHMARKS.md)
+
 ## Testing Dynamic Loading
 
 ### Build for Dynamic Loading

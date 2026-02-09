@@ -6,7 +6,11 @@ pub use libc::{c_char, c_int, c_long, c_void, size_t};
 pub type LuaState = *mut c_void;
 pub type LuaCFunction = extern "C" fn(*mut c_void) -> c_int;
 pub type LuaHook = extern "C" fn(*mut c_void, *mut lua_Debug);
+
+// These types follow Lua's official C API naming conventions
+#[allow(non_camel_case_types)]
 pub type lua_Integer = i64;
+#[allow(non_camel_case_types)]
 pub type lua_Number = f64;
 
 #[repr(C)]
