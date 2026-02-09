@@ -250,7 +250,13 @@ wayfinder launch --debug --runtime lua54 script.lua
 
 ## Documentation
 
-See [docs/DESIGN.md](docs/DESIGN.md) for detailed architecture and implementation details.
+Wayfinder has two types of documentation:
+
+### User Documentation
+See the [Wayfinder Documentation Site](https://forge18.github.io/wayfinder/) for user guides, tutorials, and reference materials.
+
+### Technical Documentation
+See the [docs/](docs/) directory for detailed architecture and implementation details.
 
 ## License
 
