@@ -1,0 +1,22 @@
+# Neovim plugin development
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Lua cache
+__pycache__/
+*.luac
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Testing
+test_output/
+test_results/
+
+# Temporary files
+*.tmp
+*.bak
