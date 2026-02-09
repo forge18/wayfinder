@@ -23,6 +23,17 @@ unsafe fn check_watchpoints(_L: LuaState, _ar: *mut lua_Debug) -> bool {
 }
 use crate::runtime::lua_state::DebugInfo;
 use crate::runtime::lua_ffi::*;
+
+// In dynamic mode, FFI functions don't exist so we need to use wrapper methods
+// Define module-level helpers that dispatch through the Lua wrapper
+#[cfg(feature = "dynamic-lua")]
+mod ffi_compat {
+    use super::*;
+    use crate::runtime::lua_state::Lua;
+
+    // These helper functions take a Lua wrapper and forward to its methods
+    // The calling code will need to be refactored to pass the Lua wrapper
+}
 use async_trait::async_trait;
 use libc::c_int;
 use std::collections::HashMap;
@@ -109,6 +120,7 @@ pub struct PUCLuaRuntime {
 }
 
 impl PUCLuaRuntime {
+    #[cfg(feature = "static-lua")]
     pub fn new() -> Self {
         unsafe {
             PAUSED.store(false, Ordering::SeqCst);
@@ -117,6 +129,27 @@ impl PUCLuaRuntime {
         }
 
         let lua = Arc::new(Mutex::new(Lua::new()));
+
+        Self {
+            lua,
+            breakpoints: Arc::new(Mutex::new(HashMap::new())),
+            detailed_breakpoints: Arc::new(Mutex::new(HashMap::new())),
+            watchpoint_manager: Arc::new(RwLock::new(WatchpointManager::new())),
+            watched_variable_values: Arc::new(Mutex::new(HashMap::new())),
+            config: DebuggerConfig::default(),
+            step_mode: Arc::new(Mutex::new(StepMode::Over)),
+        }
+    }
+
+    #[cfg(feature = "dynamic-lua")]
+    pub fn new_with_library(lib: crate::runtime::lua_loader::LuaLibrary) -> Self {
+        unsafe {
+            PAUSED.store(false, Ordering::SeqCst);
+            SHOULD_STEP.store(false, Ordering::SeqCst);
+            CURRENT_LINE.store(1, Ordering::SeqCst);
+        }
+
+        let lua = Arc::new(Mutex::new(Lua::new_with_library(lib)));
 
         Self {
             lua,
@@ -210,7 +243,7 @@ impl PUCLuaRuntime {
         let mut lua = self.lua.lock().unwrap();
 
         let name = unsafe {
-            let ptr = lua_getlocal(lua.state(), ar.ptr(), n);
+            let ptr = lua.lua_getlocal(ar.ptr(), n);
             if ptr.is_null() {
                 return None;
             }
@@ -227,7 +260,7 @@ impl PUCLuaRuntime {
         let mut lua = self.lua.lock().unwrap();
 
         unsafe {
-            let ptr = lua_getupvalue(lua.state(), func_index, n);
+            let ptr = lua.lua_getupvalue(func_index, n);
             if ptr.is_null() {
                 return None;
             }
@@ -243,7 +276,7 @@ impl PUCLuaRuntime {
 
         unsafe {
             let mut ar = DebugInfo::new();
-            let result = lua_getinfo(lua.state(), b"SnSluf\0".as_ptr() as *const i8, ar.ptr());
+            let result = lua.lua_getinfo(b"SnSluf\0".as_ptr() as *const i8, ar.ptr());
 
             if result == 0 {
                 return None;
@@ -289,7 +322,7 @@ impl PUCLuaRuntime {
     pub fn install_hook(&self) {
         let lua = self.lua.lock().unwrap();
         unsafe {
-            lua_sethook(lua.state(), lua_hook_callback, LUA_MASKLINE, 0);
+            lua.lua_sethook(lua_hook_callback, LUA_MASKLINE, 0);
         }
     }
 
@@ -337,7 +370,7 @@ impl PUCLuaRuntime {
 
             let mut lua = self.lua.lock().unwrap();
             let mut ar = DebugInfo::new();
-            if lua_getinfo(lua.state(), b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
+            if lua.lua_getinfo(b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
                 let depth = ar.linedefined() as usize;
                 if depth == 0 {
                     STEP_DEPTH.store(0, Ordering::SeqCst);
@@ -392,16 +425,15 @@ impl DebugRuntime for PUCLuaRuntime {
             // Compile the module source
             let compile_result: Result<(), RuntimeError> = {
                 let lua_guard = self.lua.lock().unwrap();
-                let lua_state = lua_guard.state();
 
                 unsafe {
                     let source_cstr = std::ffi::CString::new(module_source)
                         .map_err(|_| RuntimeError::Communication("Invalid source string".to_string()))?;
 
-                    if luaL_loadstring(lua_state, source_cstr.as_ptr()) != LUA_OK as i32 {
+                    if lua_guard.luaL_loadstring(source_cstr.as_ptr()) != LUA_OK as i32 {
                         // Get the error message
-                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
-                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                        let error_msg = if lua_guard.lua_type(-1) == LUA_TSTRING as i32 {
+                            let c_str = lua_guard.lua_tolstring(-1, std::ptr::null_mut());
                             if !c_str.is_null() {
                                 std::ffi::CStr::from_ptr(c_str)
                                     .to_string_lossy()
@@ -413,7 +445,7 @@ impl DebugRuntime for PUCLuaRuntime {
                             "Unknown compilation error".to_string()
                         };
 
-                        lua_pop(lua_state, 1); // Remove error message
+                        lua_guard.lua_pop(1); // Remove error message
                         return Err(RuntimeError::Communication(format!("Compilation failed: {}", error_msg)));
                     }
                     Ok(())
@@ -425,13 +457,12 @@ impl DebugRuntime for PUCLuaRuntime {
             // Execute the compiled module
             let execute_result: Result<(), RuntimeError> = {
                 let lua_guard = self.lua.lock().unwrap();
-                let lua_state = lua_guard.state();
 
                 unsafe {
-                    if lua_pcall(lua_state, 0, 1, 0) != LUA_OK as i32 {
+                    if lua_guard.lua_pcall(0, 1, 0) != LUA_OK as i32 {
                         // Get the error message
-                        let error_msg = if lua_type(lua_state, -1) == LUA_TSTRING as i32 {
-                            let c_str = lua_tolstring(lua_state, -1, std::ptr::null_mut());
+                        let error_msg = if lua_guard.lua_type(-1) == LUA_TSTRING as i32 {
+                            let c_str = lua_guard.lua_tolstring(-1, std::ptr::null_mut());
                             if !c_str.is_null() {
                                 std::ffi::CStr::from_ptr(c_str)
                                     .to_string_lossy()
@@ -443,12 +474,12 @@ impl DebugRuntime for PUCLuaRuntime {
                             "Unknown execution error".to_string()
                         };
 
-                        lua_pop(lua_state, 1); // Remove error message
+                        lua_guard.lua_pop(1); // Remove error message
                         return Err(RuntimeError::Communication(format!("Execution failed: {}", error_msg)));
                     }
 
                     // Pop the result
-                    lua_pop(lua_state, 1);
+                    lua_guard.lua_pop(1);
                     Ok(())
                 }
             };
@@ -541,7 +572,7 @@ impl DebugRuntime for PUCLuaRuntime {
 
             unsafe {
                 let mut ar = DebugInfo::new();
-                let result = lua_getinfo(lua.state(), b"nSluf\0".as_ptr() as *const i8, ar.ptr());
+                let result = lua.lua_getinfo(b"nSluf\0".as_ptr() as *const i8, ar.ptr());
 
                 if result == 0 {
                     break;
@@ -599,12 +630,12 @@ impl DebugRuntime for PUCLuaRuntime {
                 // Create a debug info structure for the specified frame
                 let mut ar = std::mem::zeroed::<lua_Debug>();
                 // Get stack info for the frame
-                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                if lua.lua_getstack(frame_id, &mut ar) != 0 {
                     // Enumerate local variables using lua_getlocal
                     let mut index = 1i32;
                     loop {
                         // Get local variable name and value
-                        let name_ptr = lua_getlocal(lua.state(), &mut ar, index);
+                        let name_ptr = lua.lua_getlocal(&mut ar, index);
                         
                         if name_ptr.is_null() {
                             break; // No more local variables
@@ -641,7 +672,7 @@ impl DebugRuntime for PUCLuaRuntime {
                         }
                         
                         // Remove the value from the stack
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop(-2);
                         
                         index += 1;
                     }
@@ -652,14 +683,14 @@ impl DebugRuntime for PUCLuaRuntime {
             unsafe {
                 // Push "_G" string and get the global table
                 let g_name = b"_G\0".as_ptr() as *const i8;
-                if lua_getglobal(lua.state(), g_name) == 0 {
+                if lua.lua_getglobal(g_name) == 0 {
                     // _G doesn't exist or is nil, remove it from stack
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop(-2);
                 } else {
                     // Successfully got _G table, iterate it
                     lua.push_nil(); // First key
                     let mut count = 0;
-                    while lua_next(lua.state(), -2) != 0 && count < 100 {
+                    while lua.lua_next(-2) != 0 && count < 100 {
                         let key = lua.pop_string();
                         let value_type = lua.type_of(-1);
                         let value_str = match value_type {
@@ -684,12 +715,12 @@ impl DebugRuntime for PUCLuaRuntime {
                         });
                         
                         // Remove value, keep key for next iteration
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop(-2);
                         count += 1;
                     }
                     
                     // Remove _G table from stack
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop(-2);
                 }
             }
         } else if variables_reference < -1000 {
@@ -701,11 +732,11 @@ impl DebugRuntime for PUCLuaRuntime {
             
             unsafe {
                 let mut ar = std::mem::zeroed::<lua_Debug>();
-                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                if lua.lua_getstack(frame_id, &mut ar) != 0 {
                     // Get upvalues using lua_getupvalue
                     let mut index = 1i32;
                     loop {
-                        let name_ptr = lua_getupvalue(lua.state(), -1, index);
+                        let name_ptr = lua.lua_getupvalue(-1, index);
                         
                         if name_ptr.is_null() {
                             break; // No more upvalues
@@ -739,7 +770,7 @@ impl DebugRuntime for PUCLuaRuntime {
                         });
                         
                         // Remove the value from the stack
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop(-2);
                         
                         index += 1;
                     }
@@ -752,7 +783,7 @@ impl DebugRuntime for PUCLuaRuntime {
                 // Limit the number of elements we show to prevent huge expansions
                 lua.push_nil(); // First key
                 let mut count = 0;
-                while lua_next(lua.state(), -2) != 0 && count < 50 {
+                while lua.lua_next(-2) != 0 && count < 50 {
                     let key = lua.pop_string();
                     let value_type = lua.type_of(-1);
                     let value_str = match value_type {
@@ -777,7 +808,7 @@ impl DebugRuntime for PUCLuaRuntime {
                     });
                     
                     // Remove value, keep key for next iteration
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop(-2);
                     count += 1;
                 }
             }
@@ -1215,10 +1246,10 @@ impl PUCLuaRuntime {
         // Push the field name
         let field_cstr = std::ffi::CString::new(field).ok()?;
         unsafe {
-            lua_pushstring(lua.state(), field_cstr.as_ptr());
+            lua.lua_pushstring(field_cstr.as_ptr());
             
             // Get the table field value
-            if lua_gettable(lua.state(), -2) == 0 { // -2 would be the table index
+            if lua.lua_gettable(-2) == 0 { // -2 would be the table index
             // Got the field value, convert to string representation
             let value_type = lua.type_of(-1);
             let value_str = match value_type {
@@ -1275,7 +1306,7 @@ impl PUCLuaRuntime {
         
         // Push the variable name and get the global value
         let var_name_cstr = std::ffi::CString::new(variable_name).ok()?;
-        let result = unsafe { lua_getglobal(lua.state(), var_name_cstr.as_ptr()) };
+        let result = unsafe { lua.lua_getglobal(var_name_cstr.as_ptr()) };
         
         if result != 0 {
             // Got the global variable, convert to string representation

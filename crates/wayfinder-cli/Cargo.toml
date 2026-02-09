@@ -5,10 +5,20 @@ edition.workspace = true
 
 [lib]
 
+[features]
+default = ["static-lua"]
+dynamic-lua = ["wayfinder-core/dynamic-lua"]
+static-lua = ["wayfinder-core/static-lua"]
+
 [dependencies]
-wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-core = { path = "../wayfinder-core", default-features = false }
 clap.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
+serde_json.workspace = true
 home = "0.5"
+
+[[bin]]
+name = "wayfinder"
+path = "src/bin.rs"

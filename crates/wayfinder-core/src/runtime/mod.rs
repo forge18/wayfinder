@@ -238,6 +238,11 @@ pub mod luanext;
 pub mod lua_ffi;
 pub mod lua_state;
 
+#[cfg(feature = "dynamic-lua")]
+pub mod lua_loader;
+#[cfg(feature = "dynamic-lua")]
+pub mod lua_init;
+
 #[cfg(feature = "hot-reload")]
 pub mod puc_lua_hot_reload;
 #[cfg(feature = "hot-reload")]

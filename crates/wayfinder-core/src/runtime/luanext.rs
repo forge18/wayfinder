@@ -74,6 +74,7 @@ pub struct LuaNextRuntime {
 }
 
 impl LuaNextRuntime {
+    #[cfg(feature = "static-lua")]
     pub fn new() -> Self {
         unsafe {
             PAUSED.store(false, Ordering::SeqCst);
@@ -82,6 +83,23 @@ impl LuaNextRuntime {
         }
 
         let lua = Arc::new(Mutex::new(Lua::new()));
+
+        Self {
+            lua,
+            breakpoints: Arc::new(Mutex::new(HashMap::new())),
+            step_mode: Arc::new(Mutex::new(StepMode::Over)),
+        }
+    }
+
+    #[cfg(feature = "dynamic-lua")]
+    pub fn new_with_library(lib: crate::runtime::lua_loader::LuaLibrary) -> Self {
+        unsafe {
+            PAUSED.store(false, Ordering::SeqCst);
+            SHOULD_STEP.store(false, Ordering::SeqCst);
+            CURRENT_LINE.store(1, Ordering::SeqCst);
+        }
+
+        let lua = Arc::new(Mutex::new(Lua::new_with_library(lib)));
 
         Self {
             lua,
@@ -171,7 +189,7 @@ impl LuaNextRuntime {
         let mut lua = self.lua.lock().unwrap();
 
         let name = unsafe {
-            let ptr = lua_getlocal(lua.state(), ar.ptr(), n);
+            let ptr = lua.lua_getlocal( ar.ptr(), n);
             if ptr.is_null() {
                 return None;
             }
@@ -204,7 +222,7 @@ impl LuaNextRuntime {
 
         unsafe {
             let mut ar = DebugInfo::new();
-            let result = lua_getinfo(lua.state(), b"SnSluf\0".as_ptr() as *const i8, ar.ptr());
+            let result = lua.lua_getinfo( b"SnSluf\0".as_ptr() as *const i8, ar.ptr());
 
             if result == 0 {
                 return None;
@@ -250,7 +268,7 @@ impl LuaNextRuntime {
     pub fn install_hook(&self) {
         let lua = self.lua.lock().unwrap();
         unsafe {
-            lua_sethook(lua.state(), lua_hook_callback, LUA_MASKLINE, 0);
+            lua.lua_sethook(lua_hook_callback, LUA_MASKLINE, 0);
         }
     }
 
@@ -298,7 +316,7 @@ impl LuaNextRuntime {
 
             let mut lua = self.lua.lock().unwrap();
             let mut ar = DebugInfo::new();
-            if lua_getinfo(lua.state(), b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
+            if lua.lua_getinfo( b"n\0".as_ptr() as *const i8, ar.ptr()) != 0 {
                 let depth = ar.linedefined() as usize;
                 if depth == 0 {
                     STEP_DEPTH.store(0, Ordering::SeqCst);
@@ -502,7 +520,7 @@ impl DebugRuntime for LuaNextRuntime {
 
             unsafe {
                 let mut ar = DebugInfo::new();
-                let result = lua_getinfo(lua.state(), b"nSluf\0".as_ptr() as *const i8, ar.ptr());
+                let result = lua.lua_getinfo( b"nSluf\0".as_ptr() as *const i8, ar.ptr());
 
                 if result == 0 {
                     break;
@@ -560,12 +578,12 @@ impl DebugRuntime for LuaNextRuntime {
                 // Create a debug info structure for the specified frame
                 let mut ar = std::mem::zeroed::<lua_Debug>();
                 // Get stack info for the frame
-                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                if lua.lua_getstack( frame_id, &mut ar) != 0 {
                     // Enumerate local variables using lua_getlocal
                     let mut index = 1i32;
                     loop {
                         // Get local variable name and value
-                        let name_ptr = lua_getlocal(lua.state(), &mut ar, index);
+                        let name_ptr = lua.lua_getlocal( &mut ar, index);
                         
                         if name_ptr.is_null() {
                             break; // No more local variables
@@ -602,7 +620,7 @@ impl DebugRuntime for LuaNextRuntime {
                         }
                         
                         // Remove the value from the stack
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop( -2);
                         
                         index += 1;
                     }
@@ -613,14 +631,14 @@ impl DebugRuntime for LuaNextRuntime {
             unsafe {
                 // Push "_G" string and get the global table
                 let g_name = b"_G\0".as_ptr() as *const i8;
-                if lua_getglobal(lua.state(), g_name) == 0 {
+                if lua.lua_getglobal( g_name) == 0 {
                     // _G doesn't exist or is nil, remove it from stack
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop( -2);
                 } else {
                     // Successfully got _G table, iterate it
                     lua.push_nil(); // First key
                     let mut count = 0;
-                    while lua_next(lua.state(), -2) != 0 && count < 100 {
+                    while lua.lua_next( -2) != 0 && count < 100 {
                         let key = lua.pop_string();
                         let value_type = lua.type_of(-1);
                         let value_str = match value_type {
@@ -645,12 +663,12 @@ impl DebugRuntime for LuaNextRuntime {
                         });
                         
                         // Remove value, keep key for next iteration
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop( -2);
                         count += 1;
                     }
                     
                     // Remove _G table from stack
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop( -2);
                 }
             }
         } else if variables_reference < -1000 {
@@ -662,7 +680,7 @@ impl DebugRuntime for LuaNextRuntime {
             
             unsafe {
                 let mut ar = std::mem::zeroed::<lua_Debug>();
-                if lua_getstack(lua.state(), frame_id, &mut ar) != 0 {
+                if lua.lua_getstack( frame_id, &mut ar) != 0 {
                     // Get upvalues using lua_getupvalue
                     let mut index = 1i32;
                     loop {
@@ -700,7 +718,7 @@ impl DebugRuntime for LuaNextRuntime {
                         });
                         
                         // Remove the value from the stack
-                        lua_settop(lua.state(), -2);
+                        lua.lua_settop( -2);
                         
                         index += 1;
                     }
@@ -713,7 +731,7 @@ impl DebugRuntime for LuaNextRuntime {
                 // Limit the number of elements we show to prevent huge expansions
                 lua.push_nil(); // First key
                 let mut count = 0;
-                while lua_next(lua.state(), -2) != 0 && count < 50 {
+                while lua.lua_next( -2) != 0 && count < 50 {
                     let key = lua.pop_string();
                     let value_type = lua.type_of(-1);
                     let value_str = match value_type {
@@ -738,7 +756,7 @@ impl DebugRuntime for LuaNextRuntime {
                     });
                     
                     // Remove value, keep key for next iteration
-                    lua_settop(lua.state(), -2);
+                    lua.lua_settop( -2);
                     count += 1;
                 }
             }

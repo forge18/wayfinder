@@ -13,10 +13,13 @@ async-trait.workspace = true
 luanext-sourcemap = { path = "../luanext/crates/luanext-sourcemap" }
 libc = "0.2"
 regex = "1.0"
+libloading = { version = "0.8", optional = true }
 
 [features]
-default = []
+default = ["static-lua"]
 hot-reload = []
+dynamic-lua = ["libloading"]
+static-lua = []
 
 [build-dependencies]
 pkg-config = "0.3"

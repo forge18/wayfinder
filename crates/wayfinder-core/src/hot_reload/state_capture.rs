@@ -57,8 +57,8 @@ pub struct CapturedTable {
 
 /// Manages state capture operations
 pub struct StateCapture {
-    /// Lua state to capture from
-    lua_state: LuaState,
+    /// Lua wrapper
+    lua: Lua,
 
     /// Tracking visited tables to detect circular references
     visited_tables: HashMap<i64, CapturedTable>,
@@ -68,7 +68,7 @@ impl StateCapture {
     /// Create a new state capture manager
     pub fn new(lua: Lua) -> Self {
         Self {
-            lua_state: lua.state(),
+            lua,
             visited_tables: HashMap::new(),
         }
     }
@@ -79,12 +79,12 @@ impl StateCapture {
 
         unsafe {
             // Push the global table (_G) onto the stack
-            lua_pushglobaltable(self.lua_state);
+            self.lua.lua_pushglobaltable();
 
             // Traverse the global table
-            lua_pushnil(self.lua_state); // Push nil as initial key
+            self.lua.lua_pushnil(); // Push nil as initial key
 
-            while lua_next(self.lua_state, -2) != 0 {
+            while self.lua.lua_next( -2) != 0 {
                 // Key is at index -2, value is at index -1
 
                 // Capture the key (should be a string for globals)
@@ -103,11 +103,11 @@ impl StateCapture {
                 }
 
                 // Remove value, keep key for next iteration
-                lua_pop(self.lua_state, 1);
+                self.lua.lua_pop( 1);
             }
 
             // Remove the global table from the stack
-            lua_pop(self.lua_state, 1);
+            self.lua.lua_pop( 1);
         }
 
         globals
@@ -119,13 +119,13 @@ impl StateCapture {
 
         unsafe {
             // Get the function from registry
-            lua_rawgeti(self.lua_state, LUA_REGISTRYINDEX, func_ref as i32);
+            self.lua.lua_rawgeti( LUA_REGISTRYINDEX, func_ref as i64);
 
             // Check if it's actually a function
-            if lua_type(self.lua_state, -1) == LUA_TFUNCTION as i32 {
+            if self.lua.lua_type( -1) == LUA_TFUNCTION as i32 {
                 let mut i = 1;
                 loop {
-                    let name_ptr = lua_getupvalue(self.lua_state, -1, i);
+                    let name_ptr = self.lua.lua_getupvalue( -1, i);
                     if name_ptr.is_null() {
                         break;
                     }
@@ -144,12 +144,12 @@ impl StateCapture {
                         upvalues.push((name, captured_value));
                     }
 
-                    lua_pop(self.lua_state, 1); // Remove the upvalue
+                    self.lua.lua_pop( 1); // Remove the upvalue
                     i += 1;
                 }
             }
 
-            lua_pop(self.lua_state, 1); // Remove the function
+            self.lua.lua_pop( 1); // Remove the function
         }
 
         upvalues
@@ -174,21 +174,21 @@ impl StateCapture {
 
         unsafe {
             // Get the table from registry
-            lua_rawgeti(self.lua_state, LUA_REGISTRYINDEX, table_ref as i32);
+            self.lua.lua_rawgeti( LUA_REGISTRYINDEX, table_ref as i64);
 
             // Check if it's actually a table
-            if lua_type(self.lua_state, -1) == LUA_TTABLE as i32 {
+            if self.lua.lua_type( -1) == LUA_TTABLE as i32 {
                 // Capture metatable if present
-                if lua_getmetatable(self.lua_state, -1) != 0 {
+                if self.lua.lua_getmetatable( -1) != 0 {
                     // Metatable is on top of stack
-                    let meta_ref = luaL_ref(self.lua_state, LUA_REGISTRYINDEX);
+                    let meta_ref = self.lua.luaL_ref( LUA_REGISTRYINDEX);
                     captured_table.metatable = Some(meta_ref as i64);
                 }
 
                 // Traverse the table
-                lua_pushnil(self.lua_state); // Push nil as initial key
+                self.lua.lua_pushnil(); // Push nil as initial key
 
-                while lua_next(self.lua_state, -2) != 0 {
+                while self.lua.lua_next( -2) != 0 {
                     // Key is at index -2, value is at index -1
 
                     let key = self.capture_value(-2);
@@ -199,11 +199,11 @@ impl StateCapture {
                     }
 
                     // Remove value, keep key for next iteration
-                    lua_pop(self.lua_state, 1);
+                    self.lua.lua_pop( 1);
                 }
             }
 
-            lua_pop(self.lua_state, 1); // Remove the table
+            self.lua.lua_pop( 1); // Remove the table
         }
 
         Some(captured_table)
@@ -212,21 +212,21 @@ impl StateCapture {
     /// Capture a value from the Lua stack
     fn capture_value(&mut self, index: i32) -> Option<CapturedValue> {
         unsafe {
-            match lua_type(self.lua_state, index) {
+            match self.lua.lua_type( index) {
                 t if t == LUA_TNIL as i32 => Some(CapturedValue::Nil),
 
                 t if t == LUA_TBOOLEAN as i32 => {
-                    let value = lua_toboolean(self.lua_state, index) != 0;
+                    let value = self.lua.lua_toboolean( index) != 0;
                     Some(CapturedValue::Boolean(value))
                 }
 
                 t if t == LUA_TNUMBER as i32 => {
-                    let value = lua_tonumber(self.lua_state, index);
+                    let value = self.lua.lua_tonumber( index);
                     Some(CapturedValue::Number(value))
                 }
 
                 t if t == LUA_TSTRING as i32 => {
-                    let c_str = lua_tolstring(self.lua_state, index, std::ptr::null_mut());
+                    let c_str = self.lua.lua_tolstring( index, std::ptr::null_mut());
                     if !c_str.is_null() {
                         let string = std::ffi::CStr::from_ptr(c_str)
                             .to_string_lossy()
@@ -239,28 +239,28 @@ impl StateCapture {
 
                 t if t == LUA_TTABLE as i32 => {
                     // Create a reference to the table
-                    lua_pushvalue(self.lua_state, index);
-                    let table_ref = luaL_ref(self.lua_state, LUA_REGISTRYINDEX);
+                    self.lua.lua_pushvalue( index);
+                    let table_ref = self.lua.luaL_ref( LUA_REGISTRYINDEX);
 
                     // Capture the table structure
                     let captured_table = self.capture_table(table_ref as i64);
 
                     // Release the reference
-                    luaL_unref(self.lua_state, LUA_REGISTRYINDEX, table_ref);
+                    self.lua.luaL_unref( LUA_REGISTRYINDEX, table_ref);
 
                     captured_table.map(CapturedValue::Table)
                 }
 
                 t if t == LUA_TFUNCTION as i32 => {
                     // Create a reference to the function
-                    lua_pushvalue(self.lua_state, index);
-                    let func_ref = luaL_ref(self.lua_state, LUA_REGISTRYINDEX);
+                    self.lua.lua_pushvalue( index);
+                    let func_ref = self.lua.luaL_ref( LUA_REGISTRYINDEX);
 
                     // Try to get function name
                     let name = self.get_function_name(index);
 
                     // Release the reference (we're just capturing metadata)
-                    luaL_unref(self.lua_state, LUA_REGISTRYINDEX, func_ref);
+                    self.lua.luaL_unref( LUA_REGISTRYINDEX, func_ref);
 
                     Some(CapturedValue::Function {
                         reference: func_ref as i64,
@@ -270,11 +270,11 @@ impl StateCapture {
 
                 t if t == LUA_TUSERDATA as i32 => {
                     // Create a reference to the userdata
-                    lua_pushvalue(self.lua_state, index);
-                    let ud_ref = luaL_ref(self.lua_state, LUA_REGISTRYINDEX);
+                    self.lua.lua_pushvalue( index);
+                    let ud_ref = self.lua.luaL_ref( LUA_REGISTRYINDEX);
 
                     // Release the reference (we're just capturing metadata)
-                    luaL_unref(self.lua_state, LUA_REGISTRYINDEX, ud_ref);
+                    self.lua.luaL_unref( LUA_REGISTRYINDEX, ud_ref);
 
                     Some(CapturedValue::UserData {
                         reference: ud_ref as i64,
@@ -283,11 +283,11 @@ impl StateCapture {
 
                 t if t == LUA_TTHREAD as i32 => {
                     // Create a reference to the thread
-                    lua_pushvalue(self.lua_state, index);
-                    let thread_ref = luaL_ref(self.lua_state, LUA_REGISTRYINDEX);
+                    self.lua.lua_pushvalue( index);
+                    let thread_ref = self.lua.luaL_ref( LUA_REGISTRYINDEX);
 
                     // Release the reference (we're just capturing metadata)
-                    luaL_unref(self.lua_state, LUA_REGISTRYINDEX, thread_ref);
+                    self.lua.luaL_unref( LUA_REGISTRYINDEX, thread_ref);
 
                     Some(CapturedValue::Thread {
                         reference: thread_ref as i64,
@@ -304,7 +304,7 @@ impl StateCapture {
         unsafe {
             // Try to get debug info for the function
             let mut ar: lua_Debug = std::mem::zeroed();
-            if lua_getinfo(self.lua_state, b"n\0".as_ptr() as *const i8, &mut ar) != 0 {
+            if self.lua.lua_getinfo( b"n\0".as_ptr() as *const i8, &mut ar) != 0 {
                 if !ar.name.is_null() {
                     let c_str = std::ffi::CStr::from_ptr(ar.name);
                     return Some(c_str.to_string_lossy().to_string());

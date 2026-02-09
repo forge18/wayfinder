@@ -85,10 +85,10 @@ impl HotReload {
                 HotReloadError::CompilationError("Invalid source string".to_string())
             })?;
 
-            if luaL_loadstring(self.lua.state(), source_cstr.as_ptr()) != LUA_OK as i32 {
+            if self.lua.luaL_loadstring(source_cstr.as_ptr()) != LUA_OK as i32 {
                 // Get the error message
-                let error_msg = if lua_type(self.lua.state(), -1) == LUA_TSTRING as i32 {
-                    let c_str = lua_tolstring(self.lua.state(), -1, std::ptr::null_mut());
+                let error_msg = if self.lua.lua_type(-1) == LUA_TSTRING as i32 {
+                    let c_str = self.lua.lua_tolstring(-1, std::ptr::null_mut());
                     if !c_str.is_null() {
                         std::ffi::CStr::from_ptr(c_str)
                             .to_string_lossy()
@@ -100,7 +100,7 @@ impl HotReload {
                     "Unknown compilation error".to_string()
                 };
 
-                lua_pop(self.lua.state(), 1); // Remove error message
+                self.lua.lua_pop(1); // Remove error message
                 return Err(HotReloadError::CompilationError(error_msg));
             }
         }
@@ -112,10 +112,10 @@ impl HotReload {
     pub fn execute_module(&mut self) -> Result<i64, HotReloadError> {
         unsafe {
             // Execute the compiled chunk
-            if lua_pcall(self.lua.state(), 0, 1, 0) != LUA_OK as i32 {
+            if self.lua.lua_pcall(0, 1, 0) != LUA_OK as i32 {
                 // Get the error message
-                let error_msg = if lua_type(self.lua.state(), -1) == LUA_TSTRING as i32 {
-                    let c_str = lua_tolstring(self.lua.state(), -1, std::ptr::null_mut());
+                let error_msg = if self.lua.lua_type(-1) == LUA_TSTRING as i32 {
+                    let c_str = self.lua.lua_tolstring(-1, std::ptr::null_mut());
                     if !c_str.is_null() {
                         std::ffi::CStr::from_ptr(c_str)
                             .to_string_lossy()
@@ -127,13 +127,13 @@ impl HotReload {
                     "Unknown execution error".to_string()
                 };
 
-                lua_pop(self.lua.state(), 1); // Remove error message
+                self.lua.lua_pop(1); // Remove error message
                 return Err(HotReloadError::CompilationError(error_msg));
             }
 
             // The result should be on top of the stack
             // Create a reference to it
-            let module_ref = luaL_ref(self.lua.state(), LUA_REGISTRYINDEX);
+            let module_ref = self.lua.luaL_ref(LUA_REGISTRYINDEX);
             Ok(module_ref as i64)
         }
     }
@@ -160,22 +160,22 @@ impl HotReload {
                 // Push the value onto the stack based on its type
                 match global.value {
                     crate::hot_reload::state_capture::CapturedValue::Nil => {
-                        lua_pushnil(self.lua.state());
+                        self.lua.lua_pushnil();
                     }
 
                     crate::hot_reload::state_capture::CapturedValue::Boolean(b) => {
-                        lua_pushboolean(self.lua.state(), if b { 1 } else { 0 });
+                        self.lua.lua_pushboolean(if b { 1 } else { 0 });
                     }
 
                     crate::hot_reload::state_capture::CapturedValue::Number(n) => {
-                        lua_pushnumber(self.lua.state(), n);
+                        self.lua.lua_pushnumber(n);
                     }
 
                     crate::hot_reload::state_capture::CapturedValue::String(ref s) => {
                         let c_str = std::ffi::CString::new(s.as_str()).map_err(|_| {
                             HotReloadError::RestorationError("Invalid string value".to_string())
                         })?;
-                        lua_pushstring(self.lua.state(), c_str.as_ptr());
+                        self.lua.lua_pushstring(c_str.as_ptr());
                     }
 
                     // For complex types, we'll just warn that they might not be preserved
@@ -187,7 +187,7 @@ impl HotReload {
                             ),
                             severity: WarningSeverity::Warning,
                         });
-                        lua_pushnil(self.lua.state());
+                        self.lua.lua_pushnil();
                     }
                 }
 
@@ -195,7 +195,7 @@ impl HotReload {
                 let name_cstr = std::ffi::CString::new(global.name.as_str()).map_err(|_| {
                     HotReloadError::RestorationError("Invalid global name".to_string())
                 })?;
-                lua_setglobal(self.lua.state(), name_cstr.as_ptr());
+                self.lua.lua_setglobal(name_cstr.as_ptr());
             }
         }
 
@@ -264,20 +264,20 @@ impl HotReload {
     ) -> Result<(), HotReloadError> {
         unsafe {
             // Replace the old module reference with the new one in the registry
-            lua_rawgeti(self.lua.state(), LUA_REGISTRYINDEX, old_ref as i32);
-            luaL_unref(self.lua.state(), LUA_REGISTRYINDEX, old_ref as i32);
-            lua_pushvalue(self.lua.state(), -1);
-            let replaced_ref = luaL_ref(self.lua.state(), LUA_REGISTRYINDEX);
+            self.lua.lua_rawgeti(LUA_REGISTRYINDEX, old_ref as i64);
+            self.lua.luaL_unref(LUA_REGISTRYINDEX, old_ref as i32);
+            self.lua.lua_pushvalue(-1);
+            let replaced_ref = self.lua.luaL_ref(LUA_REGISTRYINDEX);
 
             // The new reference should match the old one
             assert_eq!(replaced_ref as i64, old_ref);
 
             // Now set the new module at that reference
-            lua_rawgeti(self.lua.state(), LUA_REGISTRYINDEX, new_ref as i32);
-            lua_rawseti(self.lua.state(), LUA_REGISTRYINDEX, old_ref as i32);
+            self.lua.lua_rawgeti(LUA_REGISTRYINDEX, new_ref as i64);
+            self.lua.lua_rawseti(LUA_REGISTRYINDEX, old_ref as i64);
 
             // Remove the temporary values from stack
-            lua_pop(self.lua.state(), 2);
+            self.lua.lua_pop(2);
         }
 
         Ok(())

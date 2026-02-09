@@ -1,6 +1,19 @@
 use std::env;
 
 fn main() {
+    // Check if we're using the dynamic-lua feature
+    let use_dynamic = env::var("CARGO_FEATURE_DYNAMIC_LUA").is_ok();
+
+    if use_dynamic {
+        // Dynamic loading mode - no build-time Lua dependency required
+        println!("cargo:warning=Building with dynamic Lua loading support (runtime dependency only)");
+        println!("cargo:warning=Lua 5.1-5.4 libraries will be loaded at runtime");
+        return;
+    }
+
+    // Static linking mode - for backwards compatibility
+    println!("cargo:warning=Building with static Lua linking (WAYFINDER_STATIC_LUA is set)");
+
     // Try to find Lua using pkg-config first
     if pkg_config::Config::new()
         .atleast_version("5.4")

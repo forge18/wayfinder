@@ -27,6 +27,8 @@ pub struct lua_Debug {
     pub i_ci: *mut c_void,
 }
 
+// Static linking mode: link against Lua library at build time
+#[cfg(feature = "static-lua")]
 #[link(name = "lua5.4")]
 extern "C" {
     pub fn lua_close(L: LuaState);
@@ -160,6 +162,25 @@ extern "C" {
     pub fn lua_upvaluejoin(L: LuaState, fidx1: c_int, n1: c_int, fidx2: c_int, n2: c_int);
 }
 
+// Dynamic mode: Provide stub implementations for functions used in C callbacks
+// These will panic if called - C callbacks are not supported in dynamic mode yet
+#[cfg(feature = "dynamic-lua")]
+pub unsafe fn lua_getinfo(_L: LuaState, _what: *const c_char, _ar: *mut lua_Debug) -> c_int {
+    panic!("lua_getinfo not available in dynamic mode - C callbacks not yet supported");
+}
+
+#[cfg(feature = "dynamic-lua")]
+pub unsafe fn lua_getlocal(_L: LuaState, _ar: *mut lua_Debug, _n: c_int) -> *const c_char {
+    panic!("lua_getlocal not available in dynamic mode - C callbacks not yet supported");
+}
+
+#[cfg(feature = "dynamic-lua")]
+pub unsafe fn lua_getupvalue(_L: LuaState, _funcindex: c_int, _n: c_int) -> *const c_char {
+    panic!("lua_getupvalue not available in dynamic mode - C callbacks not yet supported");
+}
+
+// Auxiliary library functions
+#[cfg(feature = "static-lua")]
 #[link(name = "lua5.4")]
 extern "C" {
     pub fn luaL_openlibs(L: LuaState);

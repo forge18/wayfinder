@@ -44,6 +44,11 @@ tempfile = "3.13"
 proptest = "1.5"
 dhat = "0.3"
 
+[features]
+default = ["static-lua"]
+dynamic-lua = ["wayfinder-cli/dynamic-lua"]
+static-lua = ["wayfinder-cli/static-lua"]
+
 [dependencies]
-wayfinder-cli = { path = "crates/wayfinder-cli" }
+wayfinder-cli = { path = "crates/wayfinder-cli", default-features = false }
 luanext-sourcemap = { path = "crates/luanext/crates/luanext-sourcemap" }
