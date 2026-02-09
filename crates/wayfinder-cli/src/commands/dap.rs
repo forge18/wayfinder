@@ -76,7 +76,7 @@ async fn handle_tcp_connection(stream: TcpStream) -> Result<(), Box<dyn std::err
     let mut server: DapServer<PUCLuaRuntime> = DapServer::new();
 
     // Set up the runtime
-    let runtime = crate::create_puc_lua_runtime();
+    let runtime = crate::create_puc_lua_runtime(None);
     server.set_runtime(runtime);
 
     // Split the stream for reading and writing
@@ -174,7 +174,7 @@ async fn run_stdio_server() -> Result<(), Box<dyn std::error::Error>> {
     let mut server: DapServer<PUCLuaRuntime> = DapServer::new();
 
     // Set up the runtime
-    let runtime = crate::create_puc_lua_runtime();
+    let runtime = crate::create_puc_lua_runtime(None);
     server.set_runtime(runtime);
 
     // Set up stdin/stdout for DAP communication

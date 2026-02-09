@@ -60,7 +60,7 @@ async fn attach_via_tcp(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let mut server: DapServer<PUCLuaRuntime> = DapServer::new();
 
     // Set up the runtime
-    let runtime = crate::create_puc_lua_runtime();
+    let runtime = crate::create_puc_lua_runtime(None);
     server.set_runtime(runtime);
 
     // Split the stream for reading and writing

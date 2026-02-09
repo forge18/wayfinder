@@ -18,6 +18,10 @@ pub type lua_Integer = i64;
 pub type lua_Number = f64;
 pub type size_t = usize;
 
+// Lua registry constants (consistent across versions)
+const LUA_REGISTRYINDEX: c_int = -10000;
+const LUA_RIDX_GLOBALS: c_int = 2;
+
 #[derive(Error, Debug)]
 pub enum LoaderError {
     #[error("Failed to load Lua library: {0}")]
@@ -43,7 +47,7 @@ struct LuaLibraryInner {
     _lib: Library,
     version: LuaVersion,
 
-    // Core API functions - load all of them dynamically
+    // Core API functions - required in all versions
     lua_close: Symbol<'static, unsafe extern "C" fn(LuaState)>,
     lua_newthread: Symbol<'static, unsafe extern "C" fn(LuaState) -> LuaState>,
     lua_gettop: Symbol<'static, unsafe extern "C" fn(LuaState) -> c_int>,
@@ -73,10 +77,9 @@ struct LuaLibraryInner {
     lua_createtable: Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int)>,
     lua_getmetatable: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
     lua_setmetatable: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
-    lua_pcallk: Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int, c_int, c_long, Option<unsafe extern "C" fn(*mut c_void, c_int)>) -> c_int>,
     lua_next: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
 
-    // Debug API
+    // Debug API - required in all versions
     lua_sethook: Symbol<'static, unsafe extern "C" fn(LuaState, LuaHook, c_int, c_int)>,
     lua_getinfo: Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char, *mut lua_Debug) -> c_int>,
     lua_getlocal: Symbol<'static, unsafe extern "C" fn(LuaState, *mut lua_Debug, c_int) -> *const c_char>,
@@ -88,14 +91,33 @@ struct LuaLibraryInner {
     lua_gethookmask: Symbol<'static, unsafe extern "C" fn(LuaState) -> c_int>,
     lua_gethookcount: Symbol<'static, unsafe extern "C" fn(LuaState) -> c_int>,
 
-    // Auxiliary library
+    // Auxiliary library - required in all versions
     lual_openlibs: Symbol<'static, unsafe extern "C" fn(LuaState)>,
     lual_newstate: Symbol<'static, unsafe extern "C" fn() -> LuaState>,
-    lual_loadbufferx: Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char, size_t, *const c_char, *const c_char) -> c_int>,
     lual_loadstring: Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char) -> c_int>,
-    lua_pushglobaltable: Symbol<'static, unsafe extern "C" fn(LuaState)>,
+    lual_traceback: Symbol<'static, unsafe extern "C" fn(LuaState, LuaState, *const c_char, c_int)>,
+    lual_newmetatable: Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char) -> c_int>,
+    lual_setmetatable: Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char)>,
+    lua_pushcclosure: Symbol<'static, unsafe extern "C" fn(LuaState, LuaCFunction, c_int)>,
+    lua_isnumber: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
+    lua_isstring: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
+    lua_topointer: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> *const c_void>,
+    lua_error: Symbol<'static, unsafe extern "C" fn(LuaState) -> !>,
+    lua_newuserdata: Symbol<'static, unsafe extern "C" fn(LuaState, size_t) -> *mut c_void>,
+    lua_checkstack: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
+    lua_upvalueid: Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int) -> *mut c_void>,
     lual_ref: Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> c_int>,
     lual_unref: Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int)>,
+
+    // Version-specific optional functions (5.2+)
+    lua_pcallk: Option<Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int, c_int, c_long, Option<unsafe extern "C" fn(*mut c_void, c_int)>) -> c_int>>,
+    lua_pushglobaltable: Option<Symbol<'static, unsafe extern "C" fn(LuaState)>>,
+    lual_loadbufferx: Option<Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char, size_t, *const c_char, *const c_char) -> c_int>>,
+
+    // Lua 5.1-specific functions (deprecated in 5.2+)
+    lua_pcall: Option<Symbol<'static, unsafe extern "C" fn(LuaState, c_int, c_int, c_int) -> c_int>>,
+    lua_objlen: Option<Symbol<'static, unsafe extern "C" fn(LuaState, c_int) -> size_t>>,
+    lual_loadbuffer: Option<Symbol<'static, unsafe extern "C" fn(LuaState, *const c_char, size_t, *const c_char) -> c_int>>,
 }
 
 impl LuaLibrary {
@@ -110,11 +132,19 @@ impl LuaLibrary {
             // Leak the library to get 'static lifetime
             let lib_static = Box::leak(Box::new(lib));
 
+            // Load version-specific optional symbols
+            let lua_pcallk_opt = Self::load_symbol_optional(lib_static, b"lua_pcallk\0");
+            let lua_pcall_opt = Self::load_symbol_optional(lib_static, b"lua_pcall\0");
+            let lua_pushglobaltable_opt = Self::load_symbol_optional(lib_static, b"lua_pushglobaltable\0");
+            let lual_loadbufferx_opt = Self::load_symbol_optional(lib_static, b"luaL_loadbufferx\0");
+            let lual_loadbuffer_opt = Self::load_symbol_optional(lib_static, b"luaL_loadbuffer\0");
+            let lua_objlen_opt = Self::load_symbol_optional(lib_static, b"lua_objlen\0");
+
             let inner = LuaLibraryInner {
                 _lib: std::ptr::read(lib_static as *const Library),
                 version,
 
-                // Load all function pointers
+                // Load all required function pointers (available in all Lua versions 5.1-5.4)
                 lua_close: Self::load_symbol(lib_static, b"lua_close\0")?,
                 lua_newthread: Self::load_symbol(lib_static, b"lua_newthread\0")?,
                 lua_gettop: Self::load_symbol(lib_static, b"lua_gettop\0")?,
@@ -144,7 +174,6 @@ impl LuaLibrary {
                 lua_createtable: Self::load_symbol(lib_static, b"lua_createtable\0")?,
                 lua_getmetatable: Self::load_symbol(lib_static, b"lua_getmetatable\0")?,
                 lua_setmetatable: Self::load_symbol(lib_static, b"lua_setmetatable\0")?,
-                lua_pcallk: Self::load_symbol(lib_static, b"lua_pcallk\0")?,
                 lua_next: Self::load_symbol(lib_static, b"lua_next\0")?,
                 lua_sethook: Self::load_symbol(lib_static, b"lua_sethook\0")?,
                 lua_getinfo: Self::load_symbol(lib_static, b"lua_getinfo\0")?,
@@ -158,11 +187,28 @@ impl LuaLibrary {
                 lua_gethookcount: Self::load_symbol(lib_static, b"lua_gethookcount\0")?,
                 lual_openlibs: Self::load_symbol(lib_static, b"luaL_openlibs\0")?,
                 lual_newstate: Self::load_symbol(lib_static, b"luaL_newstate\0")?,
-                lual_loadbufferx: Self::load_symbol(lib_static, b"luaL_loadbufferx\0")?,
                 lual_loadstring: Self::load_symbol(lib_static, b"luaL_loadstring\0")?,
-                lua_pushglobaltable: Self::load_symbol(lib_static, b"lua_pushglobaltable\0")?,
+                lual_traceback: Self::load_symbol(lib_static, b"luaL_traceback\0")?,
+                lual_newmetatable: Self::load_symbol(lib_static, b"luaL_newmetatable\0")?,
+                lual_setmetatable: Self::load_symbol(lib_static, b"luaL_setmetatable\0")?,
+                lua_pushcclosure: Self::load_symbol(lib_static, b"lua_pushcclosure\0")?,
+                lua_isnumber: Self::load_symbol(lib_static, b"lua_isnumber\0")?,
+                lua_isstring: Self::load_symbol(lib_static, b"lua_isstring\0")?,
+                lua_topointer: Self::load_symbol(lib_static, b"lua_topointer\0")?,
+                lua_error: Self::load_symbol(lib_static, b"lua_error\0")?,
+                lua_newuserdata: Self::load_symbol(lib_static, b"lua_newuserdata\0")?,
+                lua_checkstack: Self::load_symbol(lib_static, b"lua_checkstack\0")?,
+                lua_upvalueid: Self::load_symbol(lib_static, b"lua_upvalueid\0")?,
                 lual_ref: Self::load_symbol(lib_static, b"luaL_ref\0")?,
                 lual_unref: Self::load_symbol(lib_static, b"luaL_unref\0")?,
+
+                // Version-specific optional symbols
+                lua_pcallk: lua_pcallk_opt,
+                lua_pushglobaltable: lua_pushglobaltable_opt,
+                lual_loadbufferx: lual_loadbufferx_opt,
+                lua_pcall: lua_pcall_opt,
+                lua_objlen: lua_objlen_opt,
+                lual_loadbuffer: lual_loadbuffer_opt,
             };
 
             Ok(Self {
@@ -219,13 +265,18 @@ impl LuaLibrary {
         )))
     }
 
-    /// Load a symbol from the library
+    /// Load a required symbol from the library
     unsafe fn load_symbol<T>(lib: &'static Library, name: &[u8]) -> Result<Symbol<'static, T>, LoaderError> {
         lib.get(name)
             .map_err(|e| LoaderError::SymbolNotFound(
                 String::from_utf8_lossy(name).to_string(),
                 e.to_string()
             ))
+    }
+
+    /// Load an optional symbol from the library (returns None if not found)
+    unsafe fn load_symbol_optional<T>(lib: &'static Library, name: &[u8]) -> Option<Symbol<'static, T>> {
+        lib.get(name).ok()
     }
 
     pub fn version(&self) -> LuaVersion {
@@ -346,7 +397,18 @@ impl LuaLibrary {
     }
 
     pub unsafe fn lua_pcallk(&self, l: LuaState, nargs: c_int, nresults: c_int, msgh: c_int, ctx: c_long, k: Option<unsafe extern "C" fn(*mut c_void, c_int)>) -> c_int {
-        (self.inner.lua_pcallk)(l, nargs, nresults, msgh, ctx, k)
+        if let Some(ref f) = self.inner.lua_pcallk {
+            // Lua 5.2+: use native lua_pcallk with continuation support
+            f(l, nargs, nresults, msgh, ctx, k)
+        } else if let Some(ref f) = self.inner.lua_pcall {
+            // Lua 5.1: continuations not supported, ignore ctx and k parameters
+            if k.is_some() {
+                eprintln!("Warning: Continuation functions are not supported in Lua 5.1");
+            }
+            f(l, nargs, nresults, msgh)
+        } else {
+            panic!("Neither lua_pcallk nor lua_pcall available in Lua library")
+        }
     }
 
     pub unsafe fn luaL_loadstring(&self, l: LuaState, s: *const c_char) -> c_int {
@@ -362,7 +424,15 @@ impl LuaLibrary {
     }
 
     pub unsafe fn lua_pcall(&self, l: LuaState, nargs: c_int, nresults: c_int, msgh: c_int) -> c_int {
-        (self.inner.lua_pcallk)(l, nargs, nresults, msgh, 0, None)
+        if let Some(ref f) = self.inner.lua_pcallk {
+            // Lua 5.2+: use lua_pcallk with no continuation
+            f(l, nargs, nresults, msgh, 0, None)
+        } else if let Some(ref f) = self.inner.lua_pcall {
+            // Lua 5.1: use native lua_pcall
+            f(l, nargs, nresults, msgh)
+        } else {
+            panic!("Neither lua_pcallk nor lua_pcall available in Lua library")
+        }
     }
 
     pub unsafe fn lua_gettable(&self, l: LuaState, idx: c_int) -> c_int {
@@ -383,7 +453,13 @@ impl LuaLibrary {
     }
 
     pub unsafe fn lua_pushglobaltable(&self, l: LuaState) {
-        (self.inner.lua_pushglobaltable)(l)
+        if let Some(ref f) = self.inner.lua_pushglobaltable {
+            // Lua 5.2+ has native lua_pushglobaltable
+            f(l)
+        } else {
+            // Lua 5.1 compatibility: push globals table from registry
+            (self.inner.lua_rawgeti)(l, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+        }
     }
 
     pub unsafe fn luaL_ref(&self, l: LuaState, t: c_int) -> c_int {
@@ -392,6 +468,101 @@ impl LuaLibrary {
 
     pub unsafe fn luaL_unref(&self, l: LuaState, t: c_int, ref_: c_int) {
         (self.inner.lual_unref)(l, t, ref_)
+    }
+
+    pub unsafe fn lual_unref(&self, l: LuaState, t: c_int, ref_: c_int) {
+        (self.inner.lual_unref)(l, t, ref_)
+    }
+
+    pub unsafe fn lual_newstate(&self) -> LuaState {
+        (self.inner.lual_newstate)()
+    }
+
+    pub unsafe fn lual_openlibs(&self, l: LuaState) {
+        (self.inner.lual_openlibs)(l)
+    }
+
+    pub unsafe fn lual_loadstring(&self, l: LuaState, s: *const c_char) -> c_int {
+        (self.inner.lual_loadstring)(l, s)
+    }
+
+    pub unsafe fn lual_loadfilex(&self, l: LuaState, filename: *const c_char, mode: *const c_char) -> c_int {
+        if let Some(ref f) = self.inner.lual_loadbufferx {
+            // Lua 5.2+: use luaL_loadbufferx with mode parameter
+            f(l, filename, 0, filename, mode)
+        } else if let Some(ref f) = self.inner.lual_loadbuffer {
+            // Lua 5.1: use luaL_loadbuffer (ignores mode parameter)
+            if !mode.is_null() {
+                eprintln!("Warning: Mode parameter ignored in Lua 5.1");
+            }
+            f(l, filename, 0, filename)
+        } else {
+            panic!("Neither luaL_loadbufferx nor luaL_loadbuffer available in Lua library")
+        }
+    }
+
+    pub unsafe fn lua_pushinteger(&self, l: LuaState, n: lua_Integer) {
+        (self.inner.lua_pushinteger)(l, n)
+    }
+
+    pub unsafe fn lua_pushcclosure(&self, l: LuaState, f: LuaCFunction, n: c_int) {
+        (self.inner.lua_pushcclosure)(l, f, n)
+    }
+
+    pub unsafe fn lua_tointeger(&self, l: LuaState, idx: c_int) -> lua_Integer {
+        (self.inner.lua_tointeger)(l, idx)
+    }
+
+    pub unsafe fn lua_isnumber(&self, l: LuaState, idx: c_int) -> c_int {
+        (self.inner.lua_isnumber)(l, idx)
+    }
+
+    pub unsafe fn lua_isstring(&self, l: LuaState, idx: c_int) -> c_int {
+        (self.inner.lua_isstring)(l, idx)
+    }
+
+    pub unsafe fn lua_typename(&self, l: LuaState, tp: c_int) -> *const c_char {
+        (self.inner.lua_typename)(l, tp)
+    }
+
+    pub unsafe fn lual_traceback(&self, l: LuaState, l1: LuaState, msg: *const c_char, level: c_int) {
+        (self.inner.lual_traceback)(l, l1, msg, level)
+    }
+
+    pub unsafe fn lua_topointer(&self, l: LuaState, idx: c_int) -> *const c_void {
+        (self.inner.lua_topointer)(l, idx)
+    }
+
+    pub unsafe fn lua_error(&self, l: LuaState) -> ! {
+        (self.inner.lua_error)(l)
+    }
+
+    pub unsafe fn lua_newuserdata(&self, l: LuaState, size: size_t) -> *mut c_void {
+        (self.inner.lua_newuserdata)(l, size)
+    }
+
+    pub unsafe fn lua_checkstack(&self, l: LuaState, extra: c_int) -> c_int {
+        (self.inner.lua_checkstack)(l, extra)
+    }
+
+    pub unsafe fn lual_ref(&self, l: LuaState, t: c_int) -> c_int {
+        (self.inner.lual_ref)(l, t)
+    }
+
+    pub unsafe fn lua_upvalueid(&self, l: LuaState, fidx: c_int, n: c_int) -> *mut c_void {
+        (self.inner.lua_upvalueid)(l, fidx, n)
+    }
+
+    pub unsafe fn lua_setmetatable(&self, l: LuaState, idx: c_int) -> c_int {
+        (self.inner.lua_setmetatable)(l, idx)
+    }
+
+    pub unsafe fn lual_newmetatable(&self, l: LuaState, tname: *const c_char) -> c_int {
+        (self.inner.lual_newmetatable)(l, tname)
+    }
+
+    pub unsafe fn lual_setmetatable(&self, l: LuaState, tname: *const c_char) {
+        (self.inner.lual_setmetatable)(l, tname)
     }
 }
 

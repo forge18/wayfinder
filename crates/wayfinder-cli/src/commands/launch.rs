@@ -30,7 +30,7 @@ pub struct LaunchConfig {
 /// Launch a Lua script with debugging capabilities
 pub async fn launch_script(config: LaunchConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Determine the runtime executable
-    let runtime_executable = config.runtime.unwrap_or_else(|| "lua".to_string());
+    let runtime_executable = config.runtime.clone().unwrap_or_else(|| "lua".to_string());
 
     println!("Launching {} with {}", config.script, runtime_executable);
     if config.debug {
@@ -94,7 +94,7 @@ pub async fn launch_script(config: LaunchConfig) -> Result<(), Box<dyn std::erro
     // If debug mode is enabled, set up DAP debugging
     if config.debug {
         println!("Starting DAP debugging session...");
-        return launch_with_debugging(child).await;
+        return launch_with_debugging(child, config.runtime).await;
     }
 
     // Normal execution without debugging
@@ -120,7 +120,7 @@ pub async fn launch_script(config: LaunchConfig) -> Result<(), Box<dyn std::erro
 }
 
 /// Launch with DAP debugging enabled
-async fn launch_with_debugging(child: tokio::process::Child) -> Result<(), Box<dyn std::error::Error>> {
+async fn launch_with_debugging(child: tokio::process::Child, runtime_version: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("DAP debugging enabled - starting debug session");
     eprintln!("Note: Full DAP debugging requires IDE connection");
     eprintln!("For now, the process will run with debug helpers injected");
@@ -128,8 +128,8 @@ async fn launch_with_debugging(child: tokio::process::Child) -> Result<(), Box<d
     // Create DAP server
     let mut server: DapServer<PUCLuaRuntime> = DapServer::new();
 
-    // Set up the runtime
-    let runtime = crate::create_puc_lua_runtime();
+    // Set up the runtime with specified version
+    let runtime = crate::create_puc_lua_runtime(runtime_version.as_deref());
     server.set_runtime(runtime);
 
     // Store the process handle

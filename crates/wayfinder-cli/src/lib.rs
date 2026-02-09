@@ -10,10 +10,27 @@ pub mod config_mod;
 // Re-exports for convenience
 pub use config_mod::Config;
 
+/// Parse runtime string into LuaVersion
+#[cfg(feature = "dynamic-lua")]
+fn parse_runtime_version(runtime: &str) -> Result<wayfinder_core::runtime::LuaVersion, String> {
+    use wayfinder_core::runtime::LuaVersion;
+
+    match runtime.to_lowercase().as_str() {
+        "lua5.1" | "lua51" | "5.1" => Ok(LuaVersion::V51),
+        "lua5.2" | "lua52" | "5.2" => Ok(LuaVersion::V52),
+        "lua5.3" | "lua53" | "5.3" => Ok(LuaVersion::V53),
+        "lua5.4" | "lua54" | "5.4" => Ok(LuaVersion::V54),
+        _ => Err(format!("Unsupported runtime: {}. Supported: lua5.1, lua5.2, lua5.3, lua5.4", runtime)),
+    }
+}
+
 // Helper function to create PUCLuaRuntime in both static and dynamic modes
-pub fn create_puc_lua_runtime() -> wayfinder_core::runtime::puc_lua::PUCLuaRuntime {
+pub fn create_puc_lua_runtime(runtime: Option<&str>) -> wayfinder_core::runtime::puc_lua::PUCLuaRuntime {
     #[cfg(feature = "static-lua")]
     {
+        if let Some(rt) = runtime {
+            eprintln!("Warning: Runtime version '{}' specified but wayfinder was built with static Lua 5.4. Ignoring runtime parameter.", rt);
+        }
         wayfinder_core::runtime::puc_lua::PUCLuaRuntime::new()
     }
 
@@ -22,10 +39,22 @@ pub fn create_puc_lua_runtime() -> wayfinder_core::runtime::puc_lua::PUCLuaRunti
         use wayfinder_core::runtime::lua_loader::LuaLibrary;
         use wayfinder_core::runtime::LuaVersion;
 
-        // Load Lua library for the specified version
-        let version = LuaVersion::V54; // TODO: Get from config
+        // Parse runtime version from string or default to 5.4
+        let version = if let Some(rt_str) = runtime {
+            parse_runtime_version(rt_str)
+                .unwrap_or_else(|e| {
+                    eprintln!("{}", e);
+                    eprintln!("Falling back to Lua 5.4");
+                    LuaVersion::V54
+                })
+        } else {
+            LuaVersion::V54
+        };
+
         let lib = LuaLibrary::load(version)
-            .expect("Failed to load Lua library");
+            .unwrap_or_else(|e| {
+                panic!("Failed to load Lua library for version {:?}: {}", version, e);
+            });
 
         wayfinder_core::runtime::puc_lua::PUCLuaRuntime::new_with_library(lib)
     }

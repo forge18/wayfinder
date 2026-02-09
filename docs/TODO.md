@@ -431,28 +431,41 @@ src/
 
 ## Deferred (Future Phases)
 
-### Runtime Improvements - Dynamic Lua Loading (In Progress)
+### Runtime Improvements - Dynamic Lua Loading (Complete ✓)
 
-**Status**: Infrastructure complete (~70%), runtime integration pending
+**Status**: Full implementation complete, ready for production testing
 
 **Completed**:
 
 - [x] Dynamic loader infrastructure (`lua_loader.rs`)
 - [x] Feature flags (`static-lua`, `dynamic-lua`)
 - [x] Build system updates (no Lua dependency with dynamic-lua)
-- [x] Library discovery for Lua 5.1-5.4
+- [x] Library discovery for Lua 5.1-5.4 (macOS, Linux, Windows)
 - [x] Function pointer loading with libloading
+- [x] Optional symbol loading with fallbacks
+- [x] Version-specific compatibility shims
+  - [x] `lua_pushglobaltable` (5.2+ native, 5.1 fallback)
+  - [x] `lua_pcall` / `lua_pcallk` (5.1 native, 5.2+ via lua_pcallk)
+  - [x] `luaL_loadbufferx` / `luaL_loadbuffer` (5.2+ native, 5.1 fallback)
+- [x] Refactored `lua_state.rs` with conditional compilation (~300 lines)
+- [x] Updated `PUCLuaRuntime` with conditional constructors
+- [x] Updated `LuaNextRuntime` with conditional constructors
+- [x] CLI runtime version configuration and parsing
+- [x] All commands updated (launch, dap, attach)
 - [x] Documentation (`docs/DYNAMIC_LOADING.md`)
+- [x] Installation script (`scripts/install_lua_versions.sh`)
+- [x] Test script (`scripts/test_lua_versions.sh`)
+- [x] Integration tests (`tests/dynamic_loading_test.rs`)
+- [x] Scripts README with troubleshooting guide
 
-**Remaining**:
+**Remaining for production**:
 
-- [ ] Refactor `lua_state.rs` to use `LuaLibrary` (~200 lines)
-- [ ] Update `PUCLuaRuntime` to accept `LuaLibrary` (~50 lines)
-- [ ] Update command initialization (~30 lines)
-- [ ] Comprehensive testing with all Lua versions
-- [ ] Handle version-specific API differences
+- [ ] Test with actual Lua 5.1, 5.2, 5.3, 5.4 installations
+- [ ] Verify breakpoints work across all versions
+- [ ] Test hot reload with different versions
+- [ ] CI/CD pipeline integration
 
-**Goal**: Single binary supports Lua 5.1-5.4 with runtime version selection
+**Result**: Single binary now supports both PUC Lua AND LuaNext with runtime version selection (5.1, 5.2, 5.3, 5.4)
 
 ### IDE Extensions
 
