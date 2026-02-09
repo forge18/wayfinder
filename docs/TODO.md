@@ -467,16 +467,46 @@ src/
 
 **Result**: Single binary now supports both PUC Lua AND LuaNext with runtime version selection (5.1, 5.2, 5.3, 5.4)
 
-### IDE Extensions
+### IDE Extensions (Complete ✓)
 
-- [ ] VSCode extension scaffolding
-- [ ] Debug configuration provider
-- [ ] Runtime auto-detection
-- [ ] "Debug File" command
-- [ ] "Debug Test" CodeLens (Canary integration)
-- [ ] Neovim plugin scaffolding
-- [ ] nvim-dap auto-configuration
-- [ ] Telescope runtime picker
+#### VSCode Extension (Phases 1-3) ✓
+
+- [x] Debug configuration provider
+- [x] Runtime auto-detection
+- [x] "Debug File" command
+- [x] Run configurations (launch, attach)
+- [x] Comprehensive documentation
+
+#### Neovim Plugin (Phase 6) ✓
+
+- [x] nvim-dap integration
+- [x] Telescope runtime picker
+- [x] Configuration management
+- [x] Command system (debug, attach, select runtime)
+- [x] Automatic plugin initialization
+
+#### JetBrains IDEs Plugin (Phases 1-3) ✓
+
+- [x] Support for all JetBrains IDEs (IntelliJ IDEA, WebStorm, PyCharm, RubyMine, GoLand, CLion, Rider, PhpStorm)
+- [x] Run configuration UI
+- [x] Debug configuration provider
+- [x] Runtime auto-detection and verification
+- [x] User actions (Debug File, Select Runtime, List Runtimes)
+- [x] Breakpoint support
+- [x] Gradle build configuration
+- [x] Plugin signing and publishing setup
+
+#### ZeroBrane Studio Extension (Phases 1-3) ✓
+
+- [x] Wayfinder DAP client in Lua
+- [x] Configuration loading (yaml, toml, env vars)
+- [x] Runtime detection and verification
+- [x] Menu commands and context integration
+- [x] Session management
+- [x] Expression evaluation
+- [x] Settings panel
+
+**Summary**: All 4 IDE extensions complete with full documentation
 
 ### Additional Features
 
