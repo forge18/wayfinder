@@ -50,6 +50,47 @@ cargo build --features dynamic-lua --no-default-features
 
 ⚠️ The dynamic-lua feature is experimental and requires additional runtime integration work. Use static-lua (default) for production.
 
+## IDE Extensions
+
+Wayfinder provides native debugging integration for multiple IDEs:
+
+### Supported IDEs
+
+| IDE | Type | Installation | Status |
+| --- | --- | --- | --- |
+| **VSCode** | Extension | [Marketplace](https://marketplace.visualstudio.com) / [GitHub](editors/vscode) | ✅ Phase 1-3 |
+| **Neovim** | Plugin | [GitHub](editors/neovim) | ✅ Phase 6 |
+| **JetBrains IDEs** | Plugin | [GitHub](editors/jetbrains) | ✅ Phase 1-3 |
+| **ZeroBrane Studio** | Extension | [GitHub](editors/zerobrane) | ✅ Phase 1-3 |
+
+**JetBrains IDEs include:**
+
+- IntelliJ IDEA
+- WebStorm
+- PyCharm
+- RubyMine
+- GoLand
+- CLion
+- Rider
+- PhpStorm
+
+### Quick Links
+
+- **[VSCode Extension](editors/vscode/)** - Debug Lua in Visual Studio Code
+- **[Neovim Plugin](editors/neovim/)** - Full Neovim integration with nvim-dap
+- **[JetBrains Plugin](editors/jetbrains/)** - One plugin for all JetBrains IDEs
+- **[ZeroBrane Extension](editors/zerobrane/)** - Native Lua IDE integration
+
+Each extension includes:
+
+- 🐛 Multi-version Lua support (5.1, 5.2, 5.3, 5.4, LuaNext)
+- 🎯 Auto-detection of Lua runtime
+- 📍 Breakpoints with conditional support
+- 🔍 Variable inspection and expression evaluation
+- 🔄 Step control (over, into, out)
+- 📦 Source map support for LuaNext files
+- ⚡ Project configuration via wayfinder.yaml
+
 ## Usage
 
 ### Launch Mode
