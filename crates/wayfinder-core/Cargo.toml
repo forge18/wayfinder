@@ -27,6 +27,8 @@ pkg-config = "0.3"
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 criterion = { version = "0.5", features = ["html_reports"] }
+tempfile.workspace = true
+base64.workspace = true
 
 [[bench]]
 name = "lua_loading"
@@ -34,4 +36,8 @@ harness = false
 
 [[bench]]
 name = "lua_loading_criterion"
+harness = false
+
+[[bench]]
+name = "luanext_sourcemap"
 harness = false

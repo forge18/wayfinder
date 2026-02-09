@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use luanext_sourcemap::{PositionTranslator, Position, SourceMapSource};
+use luanext_sourcemap::{PositionTranslator, SourceMapSource};
 
 static mut PAUSED: AtomicBool = AtomicBool::new(false);
 static mut SHOULD_STEP: AtomicBool = AtomicBool::new(false);
