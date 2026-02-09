@@ -1,0 +1,23 @@
+# ZeroBrane Development
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Lua cache
+*.luac
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Testing
+test_output/
+test_results/
+*.log
+
+# Temporary files
+*.tmp
+*.bak

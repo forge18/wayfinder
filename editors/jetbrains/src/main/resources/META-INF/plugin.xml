@@ -1,0 +1,83 @@
+<idea-plugin>
+  <id>com.wayfinder.lua.debugger</id>
+  <name>Wayfinder Lua Debugger</name>
+  <vendor email="forge18@github.com" url="https://github.com/forge18/wayfinder">Wayfinder</vendor>
+
+  <description><![CDATA[
+    A Debug Adapter Protocol (DAP) debugger for Lua and LuaNext development.
+    <br/>
+    <br/>
+    <strong>Features:</strong>
+    <ul>
+      <li>Multi-version Lua support (5.1, 5.2, 5.3, 5.4, LuaNext)</li>
+      <li>Line and conditional breakpoints</li>
+      <li>Variable inspection and expression evaluation</li>
+      <li>Step over, step into, step out</li>
+      <li>Call stack navigation</li>
+      <li>Source map support for LuaNext files</li>
+      <li>Auto-detection of Lua runtime</li>
+    </ul>
+    <br/>
+    <strong>Requirements:</strong>
+    <ul>
+      <li>Wayfinder CLI binary installed</li>
+      <li>Lua 5.1+ runtime (for debugging)</li>
+    </ul>
+  ]]></description>
+
+  <change-notes><![CDATA[
+    <h3>1.0.0</h3>
+    <ul>
+      <li>Initial release with full DAP support</li>
+      <li>Multi-version Lua support</li>
+      <li>Telescope-like runtime picker</li>
+    </ul>
+  ]]></change-notes>
+
+  <idea-version since-build="232.0"/>
+
+  <depends>com.intellij.modules.lang</depends>
+  <depends>com.intellij.modules.xdebugger</depends>
+
+  <application-components>
+    <component>
+      <implementation-class>com.wayfinder.lua.debugger.WayfinderDebuggerComponent</implementation-class>
+    </component>
+  </application-components>
+
+  <project-components>
+    <component>
+      <implementation-class>com.wayfinder.lua.debugger.WayfinderProjectComponent</implementation-class>
+    </component>
+  </project-components>
+
+  <actions>
+    <action id="Wayfinder.SelectRuntime"
+            class="com.wayfinder.lua.debugger.actions.SelectRuntimeAction"
+            text="Select Lua Runtime"
+            description="Choose which Lua version to use for debugging">
+      <add-to-group group-id="RunMenu" anchor="last"/>
+    </action>
+
+    <action id="Wayfinder.ListRuntimes"
+            class="com.wayfinder.lua.debugger.actions.ListRuntimesAction"
+            text="List Available Lua Runtimes"
+            description="Show installed Lua versions and their paths">
+      <add-to-group group-id="RunMenu" anchor="last"/>
+    </action>
+
+    <action id="Wayfinder.DebugFile"
+            class="com.wayfinder.lua.debugger.actions.DebugFileAction"
+            text="Debug Lua File"
+            description="Debug the current Lua file">
+      <keyboard-shortcut keymap="$default" first-keystroke="ctrl F5"/>
+    </action>
+  </actions>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <configurationType implementation="com.wayfinder.lua.debugger.run.WayfinderConfigurationType"/>
+    <runConfigurationProducer implementation="com.wayfinder.lua.debugger.run.WayfinderRunConfigurationProducer"/>
+    <debuggerLanguageSupport implementation="com.wayfinder.lua.debugger.execution.LuaDebuggerSupport"/>
+    <xdebugger.breakpointType implementation="com.wayfinder.lua.debugger.breakpoints.LuaLineBreakpointType"/>
+  </extensions>
+</idea-plugin>
