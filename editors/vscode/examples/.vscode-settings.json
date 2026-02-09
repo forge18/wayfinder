@@ -1,0 +1,11 @@
+{
+  "wayfinder.debug.port": 5858,
+  "wayfinder.debug.autoDetectRuntime": true,
+  "wayfinder.debug.sourceMapBehavior": "ask",
+  "wayfinder.runtime.lua51.path": "lua5.1",
+  "wayfinder.runtime.lua52.path": "lua5.2",
+  "wayfinder.runtime.lua53.path": "lua5.3",
+  "wayfinder.runtime.lua54.path": "lua5.4",
+  "wayfinder.runtime.luanext.path": "luanext",
+  "wayfinder.wayfinder.path": "wayfinder"
+}

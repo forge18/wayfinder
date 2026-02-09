@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "wayfinder",
+      "request": "launch",
+      "name": "Launch Lua Script",
+      "program": "${workspaceFolder}/main.lua",
+      "cwd": "${workspaceFolder}",
+      "runtime": "lua54",
+      "stopOnEntry": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "wayfinder",
+      "request": "launch",
+      "name": "Debug with Lua 5.3",
+      "program": "${workspaceFolder}/main.lua",
+      "cwd": "${workspaceFolder}",
+      "runtime": "lua53",
+      "stopOnEntry": false
+    },
+    {
+      "type": "wayfinder",
+      "request": "launch",
+      "name": "Debug LuaNext Script",
+      "program": "${workspaceFolder}/main.luax",
+      "cwd": "${workspaceFolder}",
+      "runtime": "luanext",
+      "stopOnEntry": false
+    },
+    {
+      "type": "wayfinder",
+      "request": "launch",
+      "name": "Debug with Arguments",
+      "program": "${workspaceFolder}/main.lua",
+      "cwd": "${workspaceFolder}",
+      "args": ["arg1", "arg2"],
+      "runtime": "lua54",
+      "stopOnEntry": true
+    },
+    {
+      "type": "wayfinder",
+      "request": "attach",
+      "name": "Attach to Process",
+      "port": 5858,
+      "host": "localhost"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug All Tests",
+      "configurations": ["Launch Lua Script"]
+    }
+  ]
+}

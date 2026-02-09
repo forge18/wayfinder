@@ -1,0 +1,261 @@
+{
+  "name": "wayfinder-debugger",
+  "displayName": "Wayfinder - Lua Debugger",
+  "description": "Debug Adapter for Lua and LuaNext with support for multiple Lua versions",
+  "version": "0.1.0",
+  "publisher": "wayfinder",
+  "license": "MIT",
+  "icon": "assets/wayfinder-icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/forge18/wayfinder"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "keywords": [
+    "lua",
+    "luanext",
+    "debug",
+    "debugger",
+    "dap"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onDebugResolve:wayfinder",
+    "onCommand:wayfinder.debugFile",
+    "onCommand:wayfinder.selectRuntime",
+    "onCommand:wayfinder.attachProcess"
+  ],
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "wayfinder",
+        "label": "Wayfinder Lua",
+        "program": "${command:wayfinder.getProgramPath}",
+        "runtime": "node",
+        "languages": [
+          "lua",
+          "luanext"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the Lua script to debug",
+                "default": "${workspaceFolder}/main.lua"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debugged process",
+                "default": "${workspaceFolder}"
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments to pass to the Lua script",
+                "default": []
+              },
+              "runtime": {
+                "type": "string",
+                "description": "Lua runtime to use (lua51, lua52, lua53, lua54, luanext)",
+                "enum": [
+                  "lua51",
+                  "lua52",
+                  "lua53",
+                  "lua54",
+                  "luanext"
+                ],
+                "default": "lua54"
+              },
+              "port": {
+                "type": "number",
+                "description": "DAP port (auto-incremented if multiple sessions)",
+                "default": 5858
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop on entry to the script",
+                "default": false
+              },
+              "console": {
+                "type": "string",
+                "enum": [
+                  "integratedTerminal",
+                  "externalTerminal",
+                  "internalConsole"
+                ],
+                "default": "integratedTerminal"
+              }
+            }
+          },
+          "attach": {
+            "properties": {
+              "port": {
+                "type": "number",
+                "description": "DAP port of running Lua process",
+                "default": 5858
+              },
+              "host": {
+                "type": "string",
+                "description": "Host to connect to",
+                "default": "localhost"
+              }
+            }
+          }
+        },
+        "configurationSnippets": [
+          {
+            "label": "Wayfinder: Launch Lua Script",
+            "description": "Debug a Lua script with Wayfinder",
+            "body": {
+              "type": "wayfinder",
+              "request": "launch",
+              "name": "Launch Script",
+              "program": "^\"\\${workspaceFolder}/main.lua\"",
+              "cwd": "^\"\\${workspaceFolder}\"",
+              "runtime": "lua54",
+              "stopOnEntry": false
+            }
+          },
+          {
+            "label": "Wayfinder: Launch LuaNext Script",
+            "description": "Debug a LuaNext script with Wayfinder",
+            "body": {
+              "type": "wayfinder",
+              "request": "launch",
+              "name": "Launch LuaNext",
+              "program": "^\"\\${workspaceFolder}/main.luax\"",
+              "cwd": "^\"\\${workspaceFolder}\"",
+              "runtime": "luanext",
+              "stopOnEntry": false
+            }
+          },
+          {
+            "label": "Wayfinder: Attach to Process",
+            "description": "Attach to a running Lua process",
+            "body": {
+              "type": "wayfinder",
+              "request": "attach",
+              "name": "Attach",
+              "port": 5858,
+              "host": "localhost"
+            }
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "wayfinder.debugFile",
+        "title": "Debug File",
+        "category": "Wayfinder"
+      },
+      {
+        "command": "wayfinder.selectRuntime",
+        "title": "Select Lua Runtime",
+        "category": "Wayfinder"
+      },
+      {
+        "command": "wayfinder.attachProcess",
+        "title": "Attach to Process",
+        "category": "Wayfinder"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "wayfinder.debugFile",
+          "group": "debug",
+          "when": "resourceLangId == lua || resourceLangId == luanext"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Wayfinder Debugger",
+      "properties": {
+        "wayfinder.debug.port": {
+          "type": "number",
+          "default": 5858,
+          "description": "Default DAP port (will auto-increment if needed)"
+        },
+        "wayfinder.debug.autoDetectRuntime": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically detect Lua runtime from workspace configuration"
+        },
+        "wayfinder.debug.sourceMapBehavior": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "lenient",
+            "strict"
+          ],
+          "default": "ask",
+          "description": "How to handle source maps for bundled LuaNext files"
+        },
+        "wayfinder.runtime.lua51.path": {
+          "type": "string",
+          "default": "lua5.1",
+          "description": "Path to Lua 5.1 binary"
+        },
+        "wayfinder.runtime.lua52.path": {
+          "type": "string",
+          "default": "lua5.2",
+          "description": "Path to Lua 5.2 binary"
+        },
+        "wayfinder.runtime.lua53.path": {
+          "type": "string",
+          "default": "lua5.3",
+          "description": "Path to Lua 5.3 binary"
+        },
+        "wayfinder.runtime.lua54.path": {
+          "type": "string",
+          "default": "lua5.4",
+          "description": "Path to Lua 5.4 binary"
+        },
+        "wayfinder.runtime.luanext.path": {
+          "type": "string",
+          "default": "luanext",
+          "description": "Path to LuaNext binary"
+        },
+        "wayfinder.wayfinder.path": {
+          "type": "string",
+          "default": "wayfinder",
+          "description": "Path to Wayfinder CLI binary (auto-detected if not set)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild": "npm run esbuild-base -- --sourcemap",
+    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@vscode/debugadapter": "^1.65.0",
+    "@vscode/debugprotocol": "^1.65.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.1"
+  }
+}
