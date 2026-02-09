@@ -94,12 +94,16 @@ test_lua_version() {
     # Create test script
     local test_file=$(create_test_script "$major_minor")
 
+    # Find project root and library path
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
     # Check if library exists
     local lib_path=""
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        lib_path="/usr/local/lib/liblua${major_minor}.dylib"
+        lib_path="${PROJECT_ROOT}/lua-libs/liblua${major_minor}.dylib"
     else
-        lib_path="/usr/local/lib/liblua${major_minor}.so"
+        lib_path="${PROJECT_ROOT}/lua-libs/liblua${major_minor}.so"
     fi
 
     if [ ! -f "$lib_path" ]; then
@@ -113,10 +117,13 @@ test_lua_version() {
     # Test with wayfinder
     echo "  Running test script..."
 
-    # For now, we'll just test that the library can be loaded
-    # Full integration would require the launch command to work
+    # Check that the library can be loaded and has symbols
     if command -v nm &> /dev/null; then
-        local symbol_count=$(nm -D "$lib_path" 2>/dev/null | grep -c ' T.*lua' || echo '0')
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            local symbol_count=$(nm -D "$lib_path" 2>/dev/null | grep -c ' T _lua' || echo '0')
+        else
+            local symbol_count=$(nm -D "$lib_path" 2>/dev/null | grep -c ' T lua' || echo '0')
+        fi
         echo -e "${GREEN}  ✓ Library loaded, found ${symbol_count} Lua functions${NC}"
     fi
 

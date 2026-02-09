@@ -1,6 +1,6 @@
 #!/bin/bash
 # Script to download and build multiple Lua versions for testing dynamic loading
-# This installs Lua 5.1, 5.2, 5.3, and 5.4 to /usr/local/lib
+# Builds Lua 5.1, 5.2, 5.3, and 5.4 in local directory (no system install)
 
 set -e  # Exit on error
 
@@ -10,41 +10,47 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Lua versions to install
+# Lua versions to build
 VERSIONS=("5.1.5" "5.2.4" "5.3.6" "5.4.7")
 BASE_URL="https://www.lua.org/ftp"
-INSTALL_DIR="/usr/local"
-BUILD_DIR="/tmp/lua-builds"
+
+# Build in project directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="$PROJECT_ROOT/lua-builds"
+LUA_LIBS_DIR="$PROJECT_ROOT/lua-libs"
 
 # Detect platform
 if [[ "$OSTYPE" == "darwin"* ]]; then
     PLATFORM="macosx"
-    INSTALL_PREFIX="/usr/local"
+    LIB_EXT="dylib"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     PLATFORM="linux"
-    INSTALL_PREFIX="/usr/local"
+    LIB_EXT="so"
 else
     echo -e "${RED}Unsupported platform: $OSTYPE${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}Installing Lua versions for dynamic loading tests${NC}"
+echo -e "${GREEN}Building Lua versions for dynamic loading tests${NC}"
 echo "Platform: $PLATFORM"
-echo "Install prefix: $INSTALL_PREFIX"
+echo "Build directory: $BUILD_DIR"
+echo "Libraries directory: $LUA_LIBS_DIR"
 echo ""
 
-# Create build directory
+# Create directories
 mkdir -p "$BUILD_DIR"
+mkdir -p "$LUA_LIBS_DIR"
 cd "$BUILD_DIR"
 
-# Function to build and install a Lua version
-install_lua_version() {
+# Function to build a Lua version
+build_lua_version() {
     local version=$1
     local major_minor=$(echo $version | cut -d. -f1,2)
     local tarball="lua-${version}.tar.gz"
     local dir="lua-${version}"
 
-    echo -e "${YELLOW}=== Installing Lua ${version} ===${NC}"
+    echo -e "${YELLOW}=== Building Lua ${version} ===${NC}"
 
     # Download if not already present
     if [ ! -f "$tarball" ]; then
@@ -68,48 +74,37 @@ install_lua_version() {
         make linux
     fi
 
-    # Install
-    echo "Installing to ${INSTALL_PREFIX}..."
-    if [ "$EUID" -ne 0 ]; then
-        echo "Running with sudo for installation..."
-        sudo make install INSTALL_TOP="${INSTALL_PREFIX}"
-    else
-        make install INSTALL_TOP="${INSTALL_PREFIX}"
-    fi
+    # Create shared library in our local directory
+    echo "Creating shared library..."
+    cd src
 
-    # Verify shared library was created
+    local lib_name="liblua${major_minor}.${LIB_EXT}"
+    local lib_path="${LUA_LIBS_DIR}/${lib_name}"
+
     if [[ "$PLATFORM" == "macosx" ]]; then
-        lib_path="${INSTALL_PREFIX}/lib/liblua${major_minor}.dylib"
-        # On macOS, Lua doesn't build shared libraries by default
-        # We need to build them manually
-        echo "Creating shared library..."
-        cd src
-        if [ "$EUID" -ne 0 ]; then
-            sudo gcc -dynamiclib -o "${lib_path}" *.o -install_name "${lib_path}"
-        else
-            gcc -dynamiclib -o "${lib_path}" *.o -install_name "${lib_path}"
-        fi
-        cd ..
+        # macOS: create dylib
+        gcc -dynamiclib -o "${lib_path}" *.o -install_name "@rpath/${lib_name}"
     else
-        lib_path="${INSTALL_PREFIX}/lib/liblua${major_minor}.so"
-        # On Linux, check if shared library exists
-        if [ ! -f "$lib_path" ]; then
-            echo "Creating shared library..."
-            cd src
-            if [ "$EUID" -ne 0 ]; then
-                sudo gcc -shared -o "${lib_path}" *.o -lm -ldl
-            else
-                gcc -shared -o "${lib_path}" *.o -lm -ldl
-            fi
-            cd ..
-        fi
+        # Linux: create shared object
+        gcc -shared -o "${lib_path}" *.o -lm -ldl
     fi
 
-    # Verify installation
+    cd ..
+
+    # Verify library was created
     if [ -f "$lib_path" ]; then
-        echo -e "${GREEN}✓ Lua ${version} installed successfully${NC}"
+        echo -e "${GREEN}✓ Lua ${version} built successfully${NC}"
         echo "  Library: $lib_path"
         ls -lh "$lib_path"
+
+        # Check symbols
+        if [[ "$PLATFORM" == "macosx" ]]; then
+            local sym_count=$(nm -D "$lib_path" 2>/dev/null | grep -c ' T _lua' || echo '0')
+            echo "  Symbols: ${sym_count} Lua functions exported"
+        else
+            local sym_count=$(nm -D "$lib_path" 2>/dev/null | grep -c ' T lua' || echo '0')
+            echo "  Symbols: ${sym_count} Lua functions exported"
+        fi
     else
         echo -e "${RED}✗ Failed to create shared library: $lib_path${NC}"
         return 1
@@ -119,43 +114,41 @@ install_lua_version() {
     echo ""
 }
 
-# Install each version
+# Build each version
 for version in "${VERSIONS[@]}"; do
-    install_lua_version "$version"
+    build_lua_version "$version"
 done
 
-echo -e "${GREEN}=== Installation Summary ===${NC}"
-echo "Installed Lua versions:"
+echo -e "${GREEN}=== Build Summary ===${NC}"
+echo "Built Lua versions in: $LUA_LIBS_DIR"
 echo ""
 
 for version in "${VERSIONS[@]}"; do
     major_minor=$(echo $version | cut -d. -f1,2)
-    if [[ "$PLATFORM" == "macosx" ]]; then
-        lib="${INSTALL_PREFIX}/lib/liblua${major_minor}.dylib"
-    else
-        lib="${INSTALL_PREFIX}/lib/liblua${major_minor}.so"
-    fi
+    lib="${LUA_LIBS_DIR}/liblua${major_minor}.${LIB_EXT}"
 
     if [ -f "$lib" ]; then
         echo -e "${GREEN}✓ Lua ${version}${NC}"
         echo "  $lib"
-        # Check symbols
-        if [[ "$PLATFORM" == "macosx" ]]; then
-            echo "  Symbols: $(nm -D "$lib" 2>/dev/null | grep -c ' T _lua' || echo '0') Lua functions"
-        else
-            echo "  Symbols: $(nm -D "$lib" 2>/dev/null | grep -c ' T lua' || echo '0') Lua functions"
-        fi
     else
         echo -e "${RED}✗ Lua ${version} - not found${NC}"
     fi
-    echo ""
 done
 
+echo ""
 echo -e "${GREEN}Done!${NC}"
 echo ""
-echo "You can now test wayfinder with different Lua versions:"
-echo "  cargo build --features dynamic-lua --no-default-features"
-echo "  ./target/debug/wayfinder launch --runtime lua5.1 test.lua"
-echo "  ./target/debug/wayfinder launch --runtime lua5.2 test.lua"
-echo "  ./target/debug/wayfinder launch --runtime lua5.3 test.lua"
-echo "  ./target/debug/wayfinder launch --runtime lua5.4 test.lua"
+echo "Next steps:"
+echo "  1. Update library search paths in lua_loader.rs to include:"
+echo "     ${LUA_LIBS_DIR}"
+echo ""
+echo "  2. Or set environment variable:"
+echo "     export DYLD_LIBRARY_PATH=${LUA_LIBS_DIR}:\$DYLD_LIBRARY_PATH  # macOS"
+echo "     export LD_LIBRARY_PATH=${LUA_LIBS_DIR}:\$LD_LIBRARY_PATH      # Linux"
+echo ""
+echo "  3. Build and test:"
+echo "     cargo build --features dynamic-lua --no-default-features"
+echo "     ./target/debug/wayfinder launch --runtime lua5.1 test.lua"
+echo "     ./target/debug/wayfinder launch --runtime lua5.2 test.lua"
+echo "     ./target/debug/wayfinder launch --runtime lua5.3 test.lua"
+echo "     ./target/debug/wayfinder launch --runtime lua5.4 test.lua"

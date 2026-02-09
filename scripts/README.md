@@ -6,25 +6,31 @@ This directory contains scripts for testing Wayfinder's multi-version Lua suppor
 
 ### `install_lua_versions.sh`
 
-Downloads, builds, and installs Lua versions 5.1, 5.2, 5.3, and 5.4 with shared library support.
+Downloads and builds Lua versions 5.1, 5.2, 5.3, and 5.4 with shared library support **locally in the project directory**. No system installation required!
 
 **Requirements:**
 - C compiler (gcc/clang)
 - make
 - curl
-- Sufficient permissions for installation (may need sudo)
 
 **Usage:**
 ```bash
 ./scripts/install_lua_versions.sh
 ```
 
-**Installation locations:**
-- Binaries: `/usr/local/bin/lua`, `/usr/local/bin/lua5.1`, etc.
-- Libraries: `/usr/local/lib/liblua5.1.dylib` (macOS) or `/usr/local/lib/liblua5.1.so` (Linux)
-- Headers: `/usr/local/include/`
+**Build locations:**
 
-**Note:** On macOS, Lua doesn't build shared libraries by default. The script creates them manually using the compiled object files.
+- Source: `./lua-builds/` (temporary build artifacts)
+- Libraries: `./lua-libs/liblua5.1.dylib`, `./lua-libs/liblua5.2.dylib`, etc.
+
+**What it does:**
+
+1. Downloads Lua source tarballs from lua.org
+2. Extracts and builds each version
+3. Creates shared libraries (.dylib on macOS, .so on Linux)
+4. Copies libraries to `./lua-libs/` directory
+
+**Note:** The script builds everything locally - no sudo required, no system files modified!
 
 ### `test_lua_versions.sh`
 

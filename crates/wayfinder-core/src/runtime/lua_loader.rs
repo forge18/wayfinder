@@ -226,30 +226,65 @@ impl LuaLibrary {
             LuaVersion::V54 => "5.4",
         };
 
+        // Get project root directory (where Cargo.toml is)
+        let project_lua_libs = std::env::current_exe()
+            .ok()
+            .and_then(|exe| {
+                exe.ancestors()
+                    .find(|p| p.join("Cargo.toml").exists())
+                    .map(|p| p.join("lua-libs"))
+            });
+
         // Try different naming conventions and paths
         #[cfg(target_os = "macos")]
-        let candidates = vec![
+        let mut candidates = vec![];
+
+        // First try project-local lua-libs directory
+        #[cfg(target_os = "macos")]
+        if let Some(ref lua_libs) = project_lua_libs {
+            candidates.push(format!("{}/liblua{}.dylib", lua_libs.display(), version_str));
+        }
+
+        #[cfg(target_os = "macos")]
+        candidates.extend(vec![
             format!("/opt/homebrew/lib/liblua{}.dylib", version_str),
             format!("/opt/homebrew/lib/liblua{}.so", version_str.replace(".", "")),
             format!("/usr/local/lib/liblua{}.dylib", version_str),
             format!("/usr/local/lib/liblua{}.so", version_str.replace(".", "")),
             format!("/usr/lib/liblua{}.dylib", version_str),
             format!("liblua{}.dylib", version_str),
-        ];
+        ]);
 
         #[cfg(target_os = "linux")]
-        let candidates = vec![
+        let mut candidates = vec![];
+
+        // First try project-local lua-libs directory
+        #[cfg(target_os = "linux")]
+        if let Some(ref lua_libs) = project_lua_libs {
+            candidates.push(format!("{}/liblua{}.so", lua_libs.display(), version_str));
+        }
+
+        #[cfg(target_os = "linux")]
+        candidates.extend(vec![
             format!("/usr/lib/x86_64-linux-gnu/liblua{}.so", version_str),
             format!("/usr/lib/liblua{}.so", version_str),
             format!("/usr/local/lib/liblua{}.so", version_str),
             format!("liblua{}.so", version_str),
-        ];
+        ]);
 
         #[cfg(target_os = "windows")]
-        let candidates = vec![
+        let mut candidates = vec![];
+
+        #[cfg(target_os = "windows")]
+        if let Some(ref lua_libs) = project_lua_libs {
+            candidates.push(format!("{}\\lua{}.dll", lua_libs.display(), version_str.replace(".", "")));
+        }
+
+        #[cfg(target_os = "windows")]
+        candidates.extend(vec![
             format!("lua{}.dll", version_str.replace(".", "")),
             format!("lua{}.dll", version_str),
-        ];
+        ]);
 
         for candidate in &candidates {
             let path = PathBuf::from(candidate);
